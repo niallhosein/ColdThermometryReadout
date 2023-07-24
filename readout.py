@@ -110,6 +110,8 @@ class ColdThermometryReadout():
        self.res_list:list = []
        self.res_error:list = []
 
+       self.ResistorCalibrationDictionary = {}
+
        #Stage Setup in K and V
        self.upperstage:dict = {"UL":100,"LL":1.2,"Bias":5, "CalibratedBias":5}
        self.middlestage:dict = {"UL":1.2,"LL":0.15,"Bias":0.2, "CalibratedBias":0.2}
@@ -121,11 +123,14 @@ class ColdThermometryReadout():
        
        self.BiasOutputPort:str = "DAC0"
 
-       self.LoadResReadoutGraph()
+       self.ResistorCalibrationMappingPath = "./resistor_calibraton_mapping.csv"
+
+       #self.LoadResReadoutGraph()
        self.OpenConnection()
        self.SetupLabJack()
        self.SetChannelsToRead(channels_to_read)
        self.GenerateDictionaries()
+       self.LoadResistorCalibration(self.ResistorCalibrationMappingPath)
 
        self.TestingModule = Testing(self)
 
@@ -184,7 +189,41 @@ class ColdThermometryReadout():
         elif lowestChannelTemp < self.lowerstage["UL"]:
             if self.biasMode != 2:
                 self.BiasSwitch(self.lowerstage["CalibratedBias"])
-       
+
+    def LoadResistorCalibration(self, path:str="./resistor_calibraton_mapping.csv"):
+        """
+        Loads the resistor calibration curve for each resistor from the calibration file mapping `resistor_calibraton_mapping.csv`.
+
+        Parameters
+        ----------
+        path : str, default = "./resistor_calibraton_mapping.csv"
+            The path to the file `resistor_calibraton_mapping.csv` which contains the mappings to the calibration curves of each resistor attached to each channel.
+
+        Returns
+        -------
+        None
+        """
+
+        try:  
+            mapping_file = path
+            channel_names, calibration_curve_paths = np.loadtxt(mapping_file, delimiter=',', skiprows=1, usecols=(0,1), unpack=True)
+        except:
+            print("Could not load resistor-calibration mapping file. Check file path.")
+            quit()
+        
+        mappingdictionary = {}
+
+        #Loads mappings into a dictionary
+        for i in range(channel_names):
+            mappingdictionary[channel_names[i]]  = {"path":calibration_curve_paths[i]}
+        
+        for channel_name in self.channel_names:
+            try:
+                temp, res, drdt, sd = np.loadtxt(mappingdictionary[channel_name], delimiter=',', skiprows=0, usecols=(0,1,2,3), unpack=True)
+                self.ResistorCalibrationDictionary[channel_name] = {"Temp [K]":temp, "log(res [Ohms])":np.log10(res), "drdt": drdt, "sd": sd}
+            except:
+                print("An error occured while loading the calibration for channel: " + channel_name)        
+    
     def GenerateDictionaries(self):
         """
         Regenerates the `readoutDictionary` when the buffer is filled. Buffer size is set by `readoutBufferSize`.
@@ -394,7 +433,7 @@ class ColdThermometryReadout():
                     
                     v = np.array(v_measured[k::len(self.channel_names)])
                     res = np.array(self.ConvertResistance(v))
-                    temp = np.array(self.ConvertResistance(res))
+                    temp = np.array(self.ConvertTemperature(res), self.channel_names[k])
 
                     self.readoutDictionary[self.channel_names[k]]["V [V]"].append(v)
                     self.readoutDictionary[self.channel_names[k]]["R [kohms]"].append(res)
@@ -440,11 +479,26 @@ class ColdThermometryReadout():
         
         print("Streaming Complete. \nTotal Scans: {2}; Errors Encountered: {0}; Stream Time: {1}".format(str(errorcount), str(processtime), str(total_scans)))
 
-    def ConvertTemperature(self, resistance, unit="mK"): #TODO: FIX THIS
+    def ConvertTemperature(self, resistance:ArrayLike, channel_name:str, unit:str="mK"): #TODO: FIX THIS
         """
-        Coonverts resistance to tempermsature.
+        Converts a given resistance value to a temperature value based on the resistance-temperature calibration of the given resistor.
 
-        unit: 'mK' or 'K'
+        Parameters
+        ----------
+        resistance : ArrayLike
+            An array containing the the resistance values(in kOhms) to be converted into temperature values.
+
+        channel_name : str
+            The name of the channel from which the resistance values were obtained.
+
+        unit : str, default = 'mK'
+            The unit to which the final temperature values are saved. 
+            'mK' for millikelvin; 'K' for kelvin.
+
+        Returns
+        -------
+        temp : ArrayLike
+            An array containing the converted temperature values for the given channel.
         """
         factor = 0
         if unit == "mK":
@@ -454,8 +508,10 @@ class ColdThermometryReadout():
         else:
             pass
 
-        X = factor * np.interp(1000 * resistance, self.res_list, self.temp_list)
-        return X
+        #temp = factor * np.interp(1000 * resistance, self.res_list, self.temp_list)
+        temp = factor * np.interp(np.log10(1000 * resistance), self.ResistorCalibrationDictionary[channel_name]["R [ohms]"], self.ResistorCalibrationDictionary[channel_name]["T [K]"])
+        
+        return temp
 
     def CloseConnection(self):
         """
@@ -830,7 +886,7 @@ class Testing():
         -------
         None
         """
-        
+
         print("#################################################################\n")
         print("Stream: {0}".format(self.readout.stream_num))
         for channel in channels_to_print:
