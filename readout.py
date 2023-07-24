@@ -235,7 +235,8 @@ class ColdThermometryReadout():
                     res = data[:,1]
                     drdt = data[:,2]
                     sd = data[:,3]
-
+                    #test
+                    pass
                     self.ResistorCalibrationDictionary[channel_name] = {"Temp [K]":temp[::-1], "log(R [Ohms])":np.log10(res[::-1]), "drdt": drdt[::-1], "sd": sd[::-1]} #reverses array for np.interp
 
                 pass
