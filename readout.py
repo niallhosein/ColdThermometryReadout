@@ -224,15 +224,12 @@ class ColdThermometryReadout():
         for channel_name in self.channel_names:
             try:
                 path = os.path.realpath(mappingdictionary[channel_name]["Path"])
-                # temp, res, drdt, sd = np.loadtxt(os.path.realpath(mappingdictionary[channel_name]["Path"]), dtype=float, delimiter=',', skiprows=0, usecols=(0,1,2,3), unpack=True)
-                # self.ResistorCalibrationDictionary[channel_name] = {"Temp [K]":temp[::-1], "log(R [Ohms])":np.log10(res[::-1]), "drdt": drdt[::-1], "sd": sd[::-1]} #reverses array for np.interp
-                
+             
                 with open(path) as calibrationfile:
                     data = np.array([])
                     for line in calibrationfile:
-                        data = np.append(data, np.array(line.split(), dtype=float)) #Thisgenerates an array of size (n*4)
+                        data = np.append(data, np.array(line.split(), dtype=float)) #This generates an array of size (n*4)
 
-                    x = len(data)
                     data = np.resize(data, (int(len(data)/4),4))
                     temp = data[:,0]
                     res = data[:,1]
