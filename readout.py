@@ -1,55 +1,125 @@
+"""
+Cryogenic Thermometry Readout System
+The implementation and testing modules for the cryogenic thermomtry readout system board to be implemented on the Simon's Observatory(SO) Large Aperture Telescope Receiver(LATR).
+
+Developed By: N. Hosein, A. Manduca
+University of Pennsylvania
+"""
+
 import os
 import sys
 import numpy as np
-import pandas as pd
+from numpy.typing import ArrayLike
 from labjack import ljm
-from datetime import date, datetime
-import plotly.express as px
+from datetime import datetime
 import time
-
+from scipy import signal, stats
+import logging
 import matplotlib 
 import matplotlib.pyplot as plt
 
-import scipy.integrate as integrate
-from scipy import signal
-from scipy import stats
-
-import logging
-
 matplotlib.use("tkagg")
-
 logging.basicConfig(filename='coldtherm.log', level=logging.INFO, format='%(asctime)s - %(levelname)s - %(message)s', filemode='a')
 
 class ColdThermometryReadout():
-    def __init__(self, sample_rate, channels_to_read, scan_amount):
+    def __init__(self, channels_to_read:str, scan_amount:int, sample_rate:int=1600):
        """
-       """
-       logging.info("New session started.")
+        Readout class for the cold thermometry system.
 
+        Parameters
+        ----------
+        sample_rate : int, default = 1600
+            The number of samples taken by the LabJack per stream per channel.
+
+        channels_to_read : str
+            Input string specifying the channels to be read. Input 'all' for all channels or the channels spearated by the
+            commas: '40,41,42'
+
+        scan_amount : int
+            The number of streams to be taken. Set to -1 for an infintie number of readings.
+
+        Attributes
+        ----------
+        handle : LabJack Handle
+            The LabJack handle object of the LabJack currently connected to the computer.
+
+        setup_names : str
+            #TODO: CHANGE THIS
+
+        sample_rate : int
+            The number of samples taken by the LabJack per stream per channel.
+
+        scan_list : list
+            #TODO: CHANGE THIS
+
+        scan_amount : int
+            The number of streams to be taken. Set to -1 for an infintie number of readings.
+
+        channel_names : list
+            List of channels being read.
+
+        readoutDictionary : dict
+            Dictionary storing the voltage(V), resistance(kOhms), temperatures(mK), and timestamps for each stream.
+        
+        readoutBufferSize : int
+            Maximum size of `readoutDictionary` in bytes before it is cleared.
+
+        stream_num : int
+            The current stream number of the instance.
+
+        temp_list : list #TODO: DELETE
+            The DC signal in volts to be outputted from the output port set by `BiasOutputPort`.
+
+        res_list : list #TODO: DELETE
+            The DC signal in volts to be outputted from the output port set by `BiasOutputPort`.
+
+        upperstage : dict
+            Dictionary storing the upper stage bias configuration of the board.
+
+        middlestage : dict
+            Dictionary storing the middle stage bias configuration of the board.
+            
+        lowerstage : dict
+            Dictionary storing the lower stage bias configuration of the board.
+            
+        biasMode : int
+            The DC signal in volts to be outputted from the output port set by `BiasOutputPort`.
+
+        BiasSwitchAveragingInterval : int
+            The interval over which the board averages to determine the current temperature stage.
+
+        overrideBias:float
+            The manual voltage bias to be supplied to the signal generator chip if the automatic switching functionailty is no longer wanted.
+
+        BiasOutputPort:str, default = 'DAC0'
+            Name of the DAC port from which the DC voltage to generate the signal is sent.
+        """
+       
        self.handle = None
-       self.setup_names = ''
-       self.setup_values = ''
-       self.sample_rate = sample_rate
-       self.scan_list = None
-       self.scan_amount = scan_amount
-       self.channel_names = []
-       self.readoutDictionary = {}
-       self.stream_num = 1
+       self.setup_names:str = ''
+       self.setup_values:str = ''
+       self.sample_rate:int = sample_rate
+       self.scan_list:list = None
+       self.scan_amount:int = scan_amount
+       self.channel_names:list = []
+       self.readoutDictionary:dict = {}
+       self.readoutBufferSize:int = 100000
+       self.stream_num:int = 1
 
-       self.temp_list = []
-       self.res_list = []
-       self.res_error = []
+       self.temp_list:list = []
+       self.res_list:list = []
+       self.res_error:list = []
 
        #Stage Setup in K and V
-       self.upperstage = {"UL":100,"LL":1.2,"Bias":5, "CalibratedBias":5}
-       self.middlestage = {"UL":1.2,"LL":0.15,"Bias":0.2, "CalibratedBias":0.2}
-       self.lowerstage = {"UL":0.15,"LL":0,"Bias":0.02, "CalibratedBias":0.02}
-       self.biasMode = 10 #0: LS, 1: MS, 2: US #3: Override
-       self.BiasSwitchAveragingInterval = 30
+       self.upperstage:dict = {"UL":100,"LL":1.2,"Bias":5, "CalibratedBias":5}
+       self.middlestage:dict = {"UL":1.2,"LL":0.15,"Bias":0.2, "CalibratedBias":0.2}
+       self.lowerstage:dict = {"UL":0.15,"LL":0,"Bias":0.02, "CalibratedBias":0.02}
+       self.biasMode:int = 10 #0: LS, 1: MS, 2: US #-1: Override
+       self.BiasSwitchAveragingInterval:int = 30
        
-       self.overrideBias = 3
+       self.overrideBias:float = 3
        
-       self.BiasOutputPort = "DAC0"
+       self.BiasOutputPort:str = "DAC0"
 
        self.LoadResReadoutGraph()
        self.OpenConnection()
@@ -61,16 +131,33 @@ class ColdThermometryReadout():
 
     def BiasSwitch(self, bias:float):
         """
-        
-        
+        Changes the bias signal from the LabJack to the signal generator chip. This value in most cases will not correspond to the output of the signal generator chip.
+
+        Parameters
+        ----------
+        bias : float
+            The DC signal in volts to be outputted from the output port set by `BiasOutputPort`.
+
+        Returns
+        -------
+        None
         """
 
         ljm.eWriteName(self.handle, self.BiasOutputPort, bias)
 
-    def CheckBiasSwitch(self, ovrr = False):
+    def CheckBiasSwitch(self, ovrr:bool = False):
         """
-        
-        
+        Checks whether the bias signal needs to be switched. By default the the bias signal is set automatically by the values set in the dictionaries `lowerstage`, `middlestage`, and `upperstage`.
+        The interval over which the temperature values are averaged to look for stage changes are given by `BiasSwitchAveragingInterval`.
+
+        Parameters
+        ----------
+        ovrr : bool, default = False
+            Enable manual mode to override the automatic functionality and set the output bias to a fixed value given by `overrideBias`.
+
+        Returns
+        -------
+        None
         """
       
         if ovrr and self.biasMode == -1:
@@ -79,13 +166,11 @@ class ColdThermometryReadout():
             self.BiasSwitch(self.overrideBias)
             return
 
-        lowestChannelName = ''
         lowestChannelTemp = 1000
         for channel in self.channel_names:
             
             channeltemp = np.average(self.readoutDictionary[channel]["Temp [mK]"][-self.BiasSwitchAveragingInterval:])/1000 #Temp in K
             if channeltemp < lowestChannelTemp:
-                lowestChannelName = channel
                 lowestChannelTemp = channeltemp
 
         if lowestChannelTemp >= self.upperstage["LL"]:
@@ -102,16 +187,23 @@ class ColdThermometryReadout():
        
     def GenerateDictionaries(self):
         """
-        ###Testing Function
-        This function clears and regenerates all the memory buffers. This is called after the data has been saved to disc.
+        Regenerates the `readoutDictionary` when the buffer is filled. Buffer size is set by `readoutBufferSize`.
+        
+        Parameters
+        ----------
+        None
+
+        Returns
+        -------
+        None
         """
+
         self.readoutDictionary.clear()
 
         for n in self.channel_names:
             self.readoutDictionary[n] = {"V [V]":[],"R [kohms]":[],"Temp [mK]":[],"Time":[]}
 
-
-    def LoadResReadoutGraph(self, file = os.getcwd() + "\\temp_ref.csv"):
+    def LoadResReadoutGraph(self, file = os.getcwd() + "\\temp_ref.csv"): #TODO Fix this
         """
         ###CORE Function
         Loads the Calibration Curve of the thermometer.
@@ -121,18 +213,25 @@ class ColdThermometryReadout():
         file = os.getcwd() + "/temp_ref.csv"
         self.temp_list, self.res_list, self.res_error = np.loadtxt(file, delimiter = ",", skiprows = 0, usecols = (0, 1, 2), unpack = True)
 
-
     def OpenConnection(self):
         """
-        ###CORE Function
-        This function opens a connection to the labjack. Closes all connections to other LabJacks before executing.
+        Opens a connection to a T7 LabJack and stores the LabJack handle as `handle`. Closes connections to other LabJacks before executing.
+        
+        Parameters
+        ----------
+        None
+
+        Returns
+        -------
+        None
         """
+       
         try:
             ljm.closeAll()
 
             logging.info("Openning connection to LabJack.")
 
-            self.handle = ljm.openS("ANY", "ANY", "ANY")  # Any device, Any connection, Any identifier
+            self.handle = ljm.openS("T7", "ANY", "ANY")  
 
             # grab and print out important info 
             info = ljm.getHandleInfo(self.handle)
@@ -155,13 +254,19 @@ class ColdThermometryReadout():
 
                 self.OpenConnection()
     
-    def SetChannelsToRead(self, channels_to_read):
+    def SetChannelsToRead(self, channels_to_read:str):
         """
-        ###CORE Function
-        Sets the channels to be read.
+        Sets the channels to be read by the LabJack.
 
-        Inputs:
-        channels_to_read(str) - Input string as '48,56' or 'all' for all channels.
+        Parameters
+        ----------
+        channels_to_read : str
+            Input string specifying the channels to be read. Input 'all' for all channels or the channels spearated by the
+            commas: '40,41,42'
+
+        Returns
+        -------
+        None
         """
 
         try:
@@ -190,7 +295,7 @@ class ColdThermometryReadout():
             print(sys.exc_info()[1])
             raise
     
-    def SetupLabJack(self, setup_names=None, setup_values=None):
+    def SetupLabJack(self, setup_names=None, setup_values=None): #TODO Fix this
         """
         # set range, resolution, and settling time for channelsfactor
         # note:
@@ -228,26 +333,41 @@ class ColdThermometryReadout():
                 self.SetupLabJack(setup_names, setup_values)
 
 
-    def ConvertResistance(self, voltage):
-        """"
-        Voltage-Resistance Calibraton - Takes an inpt voltage and returns the resistance.
-
-        Input:
-        voltage(ArrayLike) - voltage to be converted to a resistance.
+    def ConvertResistance(self, voltage:ArrayLike):
         """
-        res = voltage
+        Converts a given array of voltages into rsistances using a pre-determined calibration equation. See `CalibrateBoard()`of the Testing class for determining the 
+        calibration equation.
+
+        Parameters
+        ----------
+        voltage : ArrayLike
+            ArrayLike object containing the voltage output of the board in volts.
+
+        Returns
+        -------
+        res : ArrayLike
+            ArrayLike object containing the resistances of the thermometer in kOhms.
+        """
+
         res = 58.69299438396007*voltage + 0.12049023712211593
 
         return res
 
     def Stream(self):
         """
-        Periodicity for periodic stream out - 10 correpsonds to print every 10th reading.
+        Streams the readout channels set in `channel_names` for the number of streams specified in `scan_amount`.
+
+        Parameters
+        ----------
+        None
+
+        Returns
+        -------
+        None
         """
 
-        sample_rate = self.sample_rate
         try:
-            sample_rate = ljm.eStreamStart(self.handle, int(sample_rate), len(self.channel_names), self.scan_list, sample_rate)
+            sample_rate = ljm.eStreamStart(self.handle, int(sample_rate), len(self.channel_names), self.scan_list, self.sample_rate)
         except:
             ljme = sys.exc_info()[1]
             if ljme.errorCode == 2605:
@@ -256,11 +376,7 @@ class ColdThermometryReadout():
                 print("Stream stopped. Restarting Method.")
                 self.Stream()
 
-        print("\nStream started with a sample rate of %0.0f Hz." % sample_rate)
-
-            # just a little message
-        loop_message = "Press Ctrl+C to stop."
-        print("\nStarting %s read loops.%s\n" % (str(self.scan_amount), loop_message))
+        print("\nStarting %s read loops.%s\n" % (str(self.scan_amount)))
 
         total_scans = 0
         errorcount = 0
@@ -286,13 +402,10 @@ class ColdThermometryReadout():
                     self.readoutDictionary[self.channel_names[k]]["Time"].append(streamtimeutc)
                     pass
 
-                #CHECK FOR BIAS CHANGE HERE
                 self.CheckBiasSwitch()
 
-                #CALL TESTING FUNCTIONS HERE
                 self.TestingModule.TestingRoutine()
 
-               
             except ljm.LJMError:
                 errorcount += 1
                 ljme = sys.exc_info()[1]
@@ -324,10 +437,10 @@ class ColdThermometryReadout():
         ljm.eStreamStop(self.handle)
         endtime = datetime.now()
         processtime = endtime - starttime
+        
         print("Streaming Complete. \nTotal Scans: {2}; Errors Encountered: {0}; Stream Time: {1}".format(str(errorcount), str(processtime), str(total_scans)))
 
-
-    def ConvertTemperature(self, resistance, unit="mK"):
+    def ConvertTemperature(self, resistance, unit="mK"): #TODO: FIX THIS
         """
         Coonverts resistance to tempermsature.
 
@@ -346,15 +459,36 @@ class ColdThermometryReadout():
 
     def CloseConnection(self):
         """
-        
+        Closes the connection to the current LabJack handle
+
+        Parameters
+        ----------
+        None
+
+        Returns
+        -------
+        None
         """
 
         ljm.close(self.handle)
         print("Connection closed.")
 
-    def StreamChannel(self, channel, numStreams):
+    def StreamChannel(self, channel:str, numStreams:int):
         """
-        Streams the specified channel and returns an array of the streamed averaged values.
+        Streams a specified channel for the given number of streams and returns an array of the streams. The sample rate is set by `sample_rate`.
+
+        Parameters
+        ----------
+        channel : str
+            Input string specifying the channel to be read. Eg: '40'
+
+        numStreams : int
+            The number of samples streams to save.
+
+        Returns
+        -------
+        voltages : ArrayLike
+            ArrayLike object the voltage output of the streams.
         """
 
         self.SetChannelsToRead(channel)
@@ -365,9 +499,7 @@ class ColdThermometryReadout():
         except ljm.LJMError:
             ljme = sys.exc_info()[1]
             if ljme.errorCode == 2605:
-                #print("\n Stream is active. Stopping stream.")
                 ljm.eStreamStop(self.handle)
-                #print("Stream stopped. Restarting Method.")
                 self.StreamChannel(channel, numStreams)
 
         streamNum = 0
@@ -384,17 +516,59 @@ class ColdThermometryReadout():
 
             streamNum += 1
 
-        return np.average(voltages) 
+        return voltages
 
 class Testing():
-    """
-    
-    """
-
     def __init__(self, readoutObject:ColdThermometryReadout = None):
-        """"
-        
         """
+        Testing class for the cold thermometry system.
+
+        Parameters
+        ----------
+        readoutObject : ColdThermometryReadout, default = None
+            The readout object of the current readout instance. When loading and analysing data, set to `None`.
+
+        Attributes
+        ----------
+        readoutObject : ColdThermometryReadout, default = None
+            The readout object of the current readout instance. When loading and analysing data, set to `None`.
+
+        avg_dictionary : Dictionary
+            The dictionary which stores the averaged data of the current stream instance.
+
+        bin_dictionary : Dictionary
+            The dictionary which stores the binned data of the current stream instance.
+
+        LoadedDataDictionaryAveraged : Dictionary
+            The dictionary which stores the loaded averaged data.
+
+        LoadedDataDictionaryBinned : Dictionary
+            The dictionary which stores the loaded binned data.
+
+        saveinterval : int, default = 30
+            The interval over which data is saved and memory beffers are cleared. An interval of 30 means that data is saved after 30 streams which results in a save rate of 2 saves per minute.
+
+        numBins : int, default = 10
+            The number of bins that the data is split into. The default sample rate of the board is 1600Hz. `numBins` splits the data into 10 bins of length 1600/10 = 160.
+
+        saveCounter : int, default = 0
+            The counter which stores how many files have been saved for the current readout instacne.
+
+        channels_to_print : ArrayLike
+            An array containing the names of the channels to print.
+            Eg. ["AIN50", "AIN51"]
+        
+        channels_to_plot : ArrayLike
+            An array containing the names of the channels to show on the live readout.
+            Eg. ["AIN50", "AIN51"]
+
+        fig : Figure
+            The figure of the live readout graph.
+
+        ax : Axis
+            The axis object of the live readout graph.
+        """
+        
 
         self.readout = readoutObject
         self.avg_dictionary = {}
@@ -403,9 +577,12 @@ class Testing():
         self.LoadedDataDictionaryAveraged = {}
         self.LoadedDataDictionaryBinned = {}
         
-        self.saveInterval = 10
+        self.saveInterval = 30
         self.numBins = 10
         self.saveCounter = 0
+
+        self.channels_to_print = ["AIN56"]
+        self.channels_to_plot = ["AIN56"]
 
         self.fig = None
         self.ax = None
@@ -415,8 +592,17 @@ class Testing():
 
     def GenerateDictionaries(self):
         """
+        Regenerates the `avg_dictionary` and `bin_dictionary` when the buffer is filled. Buffer size is set by `saveInterval`.
         
+        Parameters
+        ----------
+        None
+
+        Returns
+        -------
+        None
         """
+
         if self.readout == None:
             return
 
@@ -427,12 +613,23 @@ class Testing():
             self.avg_dictionary[n] = {"V [V]":[],"R [kohms]":[],"Temp [mK]":[],"Time":[]}
             self.bin_dictionary[n] = {"V [V]":[],"R [kohms]":[],"Temp [mK]":[],"Time":[]}
 
-
-
     def CalibrateBoard(self, channel:str, streamAmount:int):
         """
-        
+        Interface to calibrate the board and obtain a relationship between voltage(V) and resistance(kOhms).
+
+        Parameters
+        ----------
+        channel : str
+            The name of the channel from which the voltage samples will be taken. Eg: "AIN56"
+
+        streamAmount : int
+            The number of streams for a given resistance. 
+
+        Returns
+        -------
+        None
         """
+
         self.readout.SetChannelsToRead(str(channel))
 
         print("\n ### Calibration ###")
@@ -452,7 +649,8 @@ class Testing():
             inputResistances.append(float(res))
             print("  => Streaming data. Please wait.")
             
-            avgVoltage = self.readout.StreamChannel(channel, streamAmount)
+            voltage = self.readout.StreamChannel(channel, streamAmount)
+            avgVoltage = np.average(voltage)
             outputVoltageAverage.append(avgVoltage)
         
             print("  => Average Voltage: {0}V".format(avgVoltage))
@@ -475,32 +673,59 @@ class Testing():
 
     def redraw(self):
         """
-        ###Testing Function
-        """
-        #plt.title("Voltage Readout")
+        Redraws the graph in the live-readout graph.
 
-        # Updates the animation figure.
+        Parameters
+        ----------
+        None
+
+        Returns
+        -------
+        None
+        """
+
         self.fig.canvas.draw()
         self.fig.canvas.flush_events()
-        
-    def is_closed(self):
-
-        return not plt.fignum_exists(self.fig.number)
     
     def setup_animation(self):
-
-        #Sets interactive property of the plot.
-        plt.ion()
-
-        #Assigns the figure to the game object.
-        self.fig = plt.figure()
-
-        #Stores the axes in the plotting object
-        self.ax = self.fig.subplots()
-
-    def Plot(self, channels:list, attr:str = "V [V]", graphtitle:str = "Cold Thermometry Test Readout"):
         """
-        channels = ["AIN56", "AIN48"]
+        Sets the interactive property of the graph and assigns the figure and axes objects to the Testing object.
+        
+        Parameters
+        ----------
+        None
+
+        Returns
+        -------
+        None
+        """
+
+        plt.ion() #Sets interactive property of the plot.
+        self.fig = plt.figure() #Assigns the figure to the game object.
+        self.ax = self.fig.subplots() #Stores the axes in the plotting object
+
+    def Plot(self, channels:ArrayLike, attr:str = "V [V]", graphtitle:str = "Cold Thermometry Test Readout"):
+        """
+        Defines which channels to plot for the live readout.
+
+        Parameters
+        ----------
+        channels : Arraylike
+            An array of the channels to be read. Each element of the array must be the channel name.
+            Eg: ["AIN50", "AIN51", "AIN52"]
+        
+        attr : str, default = "V [V]"
+            The attribute which will be plotted against time.
+            For Voltage, attr = "V [V]";
+            For Resistance, attr = "R [kohms]";
+            For Temperature, attr = "Temp [mK]".
+
+        graphtitle : str, default = "Cold Thermometry Test Readout"
+            Sets the title of the graph in the live readout.
+
+        Returns
+        -------
+        None
         """
             
         plt.cla()
@@ -515,10 +740,17 @@ class Testing():
         plt.legend()
         plt.pause(0.5)
 
-
     def CalculateSplitTime(self):
         """
-        Calculates the times between splits for the split data array.
+        Calculates the times for the binned arrays/dictionaries.
+
+        Parameters
+        ----------
+        None
+
+        Returns
+        -------
+        None
         """
 
         for channel in self.avg_dictionary:
@@ -530,12 +762,19 @@ class Testing():
                 for j in range(self.numBins):
                     array = np.append(array, time + j*timediff)
 
-
             return array
 
     def AppendAverageReadout(self):
         """
-        Appends the average of a stream to a test dictionary.
+        Appends the average of the last stream of the current readout instance to the `avg_dictionary`.
+
+        Parameters
+        ----------
+        None
+
+        Returns
+        -------
+        None
         """
 
         for channel in self.readout.channel_names:
@@ -543,44 +782,55 @@ class Testing():
             self.avg_dictionary[channel]["V [V]"].append(np.average(self.readout.readoutDictionary[channel]['V [V]'][-1]))
             self.avg_dictionary[channel]["R [kohms]"].append(np.average(self.readout.readoutDictionary[channel]['R [kohms]'][-1]))
             self.avg_dictionary[channel]["Temp [mK]"].append(np.average(self.readout.readoutDictionary[channel]['Temp [mK]'][-1]))
-            self.avg_dictionary[channel]["Time"].append(np.average(self.readout.readoutDictionary[channel]['Time'][-1]))
-            
+            self.avg_dictionary[channel]["Time"].append(np.average(self.readout.readoutDictionary[channel]['Time'][-1])) 
 
-    def AppendBinReadouts(self, num_splits:int):
+    def AppendBinReadouts(self):
         """
-        
-        """
+        Appends the bin readouts to `bin_dictionary`. The number of bins is set in `numBins`.
 
-        #sr = int(self.sample_rate) ### Converts sample rate to int. Needed to prevent float errors.
+        Parameters
+        ----------
+        None
+
+        Returns
+        -------
+        None
+        """
 
         for channel in self.readout.channel_names:
-            for j in range(num_splits):
-            #a - the lower bound of the split
-            #b - the upper bound of the split
-
-                # a = j*int(sr/num_splits)
-                # b = ((j + 1) * int(sr/num_splits))
+            for j in range(self.numBins):
                 
                 voltage_arr = self.readout.readoutDictionary[channel]["V [V]"][-1]
-                voltage_bins = np.reshape(voltage_arr, (num_splits, int(len(voltage_arr)/num_splits)))
+                voltage_bins = np.reshape(voltage_arr, (self.numBins, int(len(voltage_arr)/self.numBins)))
                 voltage_bins = np.average(voltage_bins, 1)
 
                 res_arr = self.readout.readoutDictionary[channel]["R [kohms]"][-1]
-                res_bins = np.reshape(res_arr, (num_splits, int(len(voltage_arr)/num_splits)))
+                res_bins = np.reshape(res_arr, (self.numBins, int(len(voltage_arr)/self.numBins)))
                 res_bins = np.average(res_bins, 1)
 
                 temp_arr = self.readout.readoutDictionary[channel]["Temp [mK]"][-1]
-                temp_bins = np.reshape(temp_arr, (num_splits, int(len(voltage_arr)/num_splits)))
+                temp_bins = np.reshape(temp_arr, (self.numBins, int(len(voltage_arr)/self.numBins)))
                 temp_bins = np.average(temp_bins, 1)
 
                 self.bin_dictionary[channel]["V [V]"].append(voltage_bins)
                 self.bin_dictionary[channel]["R [kohms]"].append(res_bins)
                 self.bin_dictionary[channel]["Temp [mK]"].append(temp_bins) 
 
-    def PrintReadout(self, channels_to_print:list):
+    def PrintReadout(self, channels_to_print:ArrayLike):
+        """
+        Prints the voltage(V), resistance(kOhms), and temeprature(K) for the specified channels.
+
+        Parameters
+        ----------
+        channels_to_print : ArrayLike
+            An array specifying the names of the channels to be printed to the console.
+            Eg. ["AIN50", "AIN51"]
+
+        Returns
+        -------
+        None
         """
         
-        """
         print("#################################################################\n")
         print("Stream: {0}".format(self.readout.stream_num))
         for channel in channels_to_print:
@@ -595,24 +845,45 @@ class Testing():
 
     def TestingRoutine(self):
         """
-        
+        Specifies the testing routine which is called a the end of every stream in the main streamout class.
+        This may be modified along with helper functions to obtain the wanted statistics/data.
+
+        Parameters
+        ----------
+        None
+
+        Returns
+        -------
+        None
         """
 
-        ### Caclulate Avergage Data
-
         self.AppendAverageReadout()
-        self.AppendBinReadouts(10)
-        self.PrintReadout(['AIN56'])
+        self.AppendBinReadouts()
+        self.PrintReadout(self.channels_to_print)
 
-        self.Plot(["AIN56"])
+        self.Plot(self.channels_to_plot)
 
         #Save Data Files
         if self.readout.stream_num % self.saveInterval == 0:
             self.SaveDataFiles() 
 
-    def LoadData(self, channels:list, path:str = "./"):
+    def LoadData(self, channels:ArrayLike, path:str = "./"):
         """
+        Loads previous testing data into the `LoadedDataDictionaryAveraged` and `LoadedDataDictionaryBinned` objects.
+        The naming convention for testing data must be upheld for this function to work.
+
+        Parameters
+        ----------
+        channels : ArrayLike
+            An array of channels specified by name to be loaded.
+            Eg. ["AIN50", "AIN51"]
         
+        path : str, default = './'
+            The path of the folder which contains the data to be loaded.
+
+        Returns
+        -------
+        None
         """
 
         loadDictionary = {"V":"V [V]","R":"R [kohms]","T":"Temp [mK]"}
@@ -645,16 +916,26 @@ class Testing():
 
         print('Files Loaded.')
                     
-    
     def SaveDataFiles(self):
-        """"
-        ### Core Function
-        This Function saves all files to the location of the python file.
+        """
+        Saves the data in `LoadedDataDictionaryAveraged` and `LoadedDataDictionaryBinned` into files that can be later loaded.
+        
+        Naming Convention: <ChannelName>_<DataType>_<SaveIntervalCounter>
+        <ChannelName> - The name of the channel being saved. The channel list is the same as that of the main readout object.
+        <DataType> - The data being stored. V: Voltage, R: Resistance, T: Temperature
+        <SaveIntervalCounter> - Specifies the the save number of the current instance. Set based on `saveCounter`. Greater the value of `saveInterval`, smaller the number of files for a given time frame.
+
+        Parameters
+        ----------
+        None
+
+        Returns
+        -------
+        None
         """     
 
         self.saveCounter += 1
         split_time_array = self.CalculateSplitTime()
-
 
         for channel in self.readout.readoutDictionary:
             filename = channel + "_V_" + str(self.saveCounter)
@@ -666,7 +947,6 @@ class Testing():
             filename = channel + "_T_" + str(self.saveCounter)
             np.savez(filename, average_T_time = self.avg_dictionary[channel]["Time"], average_T = self.avg_dictionary[channel]["Temp [mK]"], binned_T_time = split_time_array, binned_T = self.bin_dictionary[channel]["Temp [mK]"])
          
-
         self.GenerateDictionaries()
 
 class Analysis():
@@ -815,66 +1095,10 @@ class Analysis():
         plt.legend()
         plt.show()
 
-
-
-
-
-
-
-
-
-
-
-
-
 # #Stream Test
 readoutObj = ColdThermometryReadout(1600, '56', 10000)
 readoutObj.Stream()
 
-
-
-
-
-
 #Load Data
 # testing = Testing()
 # testing.LoadData(["AIN56", "AIN55"])
-
-
-
-
-
-
-
-
-
-
-
-
-#readout.SetScanAmount(3600*24*1.5)
-# from threading import Thread, Event
-# stop = Event()
-# thread = Thread(target=readout.SignalStreamOut, args=(1, 800))
-# thread.start()
-#readout.Stream()
-
-
-
-# analysis = Analysis()
-# analysis.LoadData("AIN51__20230707_1600_10")
-# analysis.LoadData2("AIN57__20230707_1600_10")
-# #analysis.PowerSpectrum(analysis.splitdata, 10)
-# analysis.GraphSplitAverageData("hours")
-
-# stop.set(True)
-
-
-
-# data = np.load("AIN56__20230705_1600_10_1.npz")
-
-# print(data.files)
-
-# for file in data.files:
-#     print("\n\n" + file)
-#     print(data[file])
-#     print(len(data[file]
