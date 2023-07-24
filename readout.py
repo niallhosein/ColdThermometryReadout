@@ -17,6 +17,7 @@ from scipy import signal, stats
 import logging
 import matplotlib 
 import matplotlib.pyplot as plt
+import pandas as pd
 
 matplotlib.use("tkagg")
 logging.basicConfig(filename='coldtherm.log', level=logging.INFO, format='%(asctime)s - %(levelname)s - %(message)s', filemode='a')
@@ -123,7 +124,7 @@ class ColdThermometryReadout():
        
        self.BiasOutputPort:str = "DAC0"
 
-       self.ResistorCalibrationMappingPath = "./resistor_calibraton_mapping.csv"
+       self.ResistorCalibrationMappingPath = "./resistor_calibration_mapping.csv"
 
        #self.LoadResReadoutGraph()
        self.OpenConnection()
@@ -190,13 +191,13 @@ class ColdThermometryReadout():
             if self.biasMode != 2:
                 self.BiasSwitch(self.lowerstage["CalibratedBias"])
 
-    def LoadResistorCalibration(self, path:str="./resistor_calibraton_mapping.csv"):
+    def LoadResistorCalibration(self, path:str="./resistor_calibration_mapping.csv"):
         """
         Loads the resistor calibration curve for each resistor from the calibration file mapping `resistor_calibraton_mapping.csv`.
 
         Parameters
         ----------
-        path : str, default = "./resistor_calibraton_mapping.csv"
+        path : str, default = "./resistor_calibration_mapping.csv"
             The path to the file `resistor_calibraton_mapping.csv` which contains the mappings to the calibration curves of each resistor attached to each channel.
 
         Returns
@@ -205,23 +206,44 @@ class ColdThermometryReadout():
         """
 
         try:  
-            mapping_file = path
-            channel_names, calibration_curve_paths = np.loadtxt(mapping_file, delimiter=',', skiprows=1, usecols=(0,1), unpack=True)
-        except:
+            mapping_file = os.path.realpath(path)
+            df = pd.read_csv(mapping_file, header=0,names=["Channel Name", "Path"])
+            channel_names = df["Channel Name"].values
+            calibration_curve_paths = df["Path"].values
+        except Exception:
+            error = sys.exc_info()[1]
             print("Could not load resistor-calibration mapping file. Check file path.")
             quit()
         
         mappingdictionary = {}
 
         #Loads mappings into a dictionary
-        for i in range(channel_names):
-            mappingdictionary[channel_names[i]]  = {"path":calibration_curve_paths[i]}
+        for i in range(len(channel_names)):
+            mappingdictionary[channel_names[i]]  = {"Path":calibration_curve_paths[i]}
         
         for channel_name in self.channel_names:
             try:
-                temp, res, drdt, sd = np.loadtxt(mappingdictionary[channel_name], delimiter=',', skiprows=0, usecols=(0,1,2,3), unpack=True)
-                self.ResistorCalibrationDictionary[channel_name] = {"Temp [K]":temp, "log(res [Ohms])":np.log10(res), "drdt": drdt, "sd": sd}
-            except:
+                path = os.path.realpath(mappingdictionary[channel_name]["Path"])
+                # temp, res, drdt, sd = np.loadtxt(os.path.realpath(mappingdictionary[channel_name]["Path"]), dtype=float, delimiter=',', skiprows=0, usecols=(0,1,2,3), unpack=True)
+                # self.ResistorCalibrationDictionary[channel_name] = {"Temp [K]":temp[::-1], "log(R [Ohms])":np.log10(res[::-1]), "drdt": drdt[::-1], "sd": sd[::-1]} #reverses array for np.interp
+                
+                with open(path) as calibrationfile:
+                    data = np.array([])
+                    for line in calibrationfile:
+                        data = np.append(data, np.array(line.split(), dtype=float)) #Thisgenerates an array of size (n*4)
+
+                    x = len(data)
+                    data = np.resize(data, (int(len(data)/4),4))
+                    temp = data[:,0]
+                    res = data[:,1]
+                    drdt = data[:,2]
+                    sd = data[:,3]
+
+                    self.ResistorCalibrationDictionary[channel_name] = {"Temp [K]":temp[::-1], "log(R [Ohms])":np.log10(res[::-1]), "drdt": drdt[::-1], "sd": sd[::-1]} #reverses array for np.interp
+
+                pass
+            except Exception:
+                error = sys.exc_info()[1]
                 print("An error occured while loading the calibration for channel: " + channel_name)        
     
     def GenerateDictionaries(self):
@@ -406,7 +428,7 @@ class ColdThermometryReadout():
         """
 
         try:
-            sample_rate = ljm.eStreamStart(self.handle, int(sample_rate), len(self.channel_names), self.scan_list, self.sample_rate)
+            ljm.eStreamStart(self.handle, int(self.sample_rate), len(self.channel_names), self.scan_list, self.sample_rate)
         except:
             ljme = sys.exc_info()[1]
             if ljme.errorCode == 2605:
@@ -415,7 +437,7 @@ class ColdThermometryReadout():
                 print("Stream stopped. Restarting Method.")
                 self.Stream()
 
-        print("\nStarting %s read loops.%s\n" % (str(self.scan_amount)))
+        print("\nStarting %s read loops.\n" % (str(self.scan_amount)))
 
         total_scans = 0
         errorcount = 0
@@ -433,7 +455,7 @@ class ColdThermometryReadout():
                     
                     v = np.array(v_measured[k::len(self.channel_names)])
                     res = np.array(self.ConvertResistance(v))
-                    temp = np.array(self.ConvertTemperature(res), self.channel_names[k])
+                    temp = np.array(self.ConvertTemperature((res), self.channel_names[k]))
 
                     self.readoutDictionary[self.channel_names[k]]["V [V]"].append(v)
                     self.readoutDictionary[self.channel_names[k]]["R [kohms]"].append(res)
@@ -508,8 +530,7 @@ class ColdThermometryReadout():
         else:
             pass
 
-        #temp = factor * np.interp(1000 * resistance, self.res_list, self.temp_list)
-        temp = factor * np.interp(np.log10(1000 * resistance), self.ResistorCalibrationDictionary[channel_name]["R [ohms]"], self.ResistorCalibrationDictionary[channel_name]["T [K]"])
+        temp = factor * np.interp(np.log10(1000 * resistance), self.ResistorCalibrationDictionary[channel_name]["log(R [Ohms])"], self.ResistorCalibrationDictionary[channel_name]["Temp [K]"])
         
         return temp
 
@@ -1152,7 +1173,7 @@ class Analysis():
         plt.show()
 
 # #Stream Test
-readoutObj = ColdThermometryReadout(1600, '56', 10000)
+readoutObj = ColdThermometryReadout('56', 10000)
 readoutObj.Stream()
 
 #Load Data
