@@ -2,7 +2,7 @@
 Cryogenic Thermometry Readout System
 The implementation and testing modules for the cryogenic thermomtry readout system board to be implemented on the Simon's Observatory(SO) Large Aperture Telescope Receiver(LATR).
 
-Developed By: N. Hosein, A. Manduca
+S. Dicker, N. Hosein, A. Manduca
 University of Pennsylvania
 """
 
