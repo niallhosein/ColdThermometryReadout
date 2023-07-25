@@ -14,11 +14,7 @@ import pandas as pd
 from numpy.typing import ArrayLike
 from labjack import ljm
 from datetime import datetime
-from scipy import signal, stats
-from sys import getsizeof, stderr
-from itertools import chain
-from collections import deque
-from reprlib import repr
+from scipy import stats
 
 matplotlib.use("tkagg")
 logging.basicConfig(filename='coldtherm.log', level=logging.INFO, format='%(asctime)s - %(levelname)s - %(message)s', filemode='a')
