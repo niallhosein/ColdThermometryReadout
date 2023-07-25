@@ -1131,10 +1131,10 @@ class Testing():
         plt.show()
 
 #Stream Test
-# readoutObj = ColdThermometryReadout('56')
-# readoutObj.Stream()
+readoutObj = ColdThermometryReadout('56')
+readoutObj.Stream()
 
 #Load Data
-testing = Testing()
-testing.LoadData(["AIN56"], './Board Test/')
-testing.GraphData(["AIN56"], "as")
+# testing = Testing()
+# testing.LoadData(["AIN56"], './Board Test/')
+# testing.GraphData(["AIN56"], "as")
