@@ -98,8 +98,8 @@ class ColdThermometryReadout():
        
        #Configuable Settings
        self.sample_rate:int = 1600
-       self.scan_amount:int = 10000
-       self.readoutBufferSize:int = 100000 
+       self.scan_amount:int = 10
+       self.readoutBufferSize:int = 5000
        self.upper_stage_config:dict = {"UL":100,"LL":1.2,"Bias":5, "CalibratedBias":5}
        self.middle_stage_config:dict = {"UL":1.2,"LL":0.15,"Bias":0.2, "CalibratedBias":0.2}
        self.lower_stage_config:dict = {"UL":0.15,"LL":0,"Bias":0.02, "CalibratedBias":0.02}
@@ -663,7 +663,7 @@ class Testing():
         #Configurable Settings
         self.channels_to_print = ["AIN56"]
         self.channels_to_plot = ["AIN56"]
-        self.saveInterval = 60
+        self.saveInterval = 30
         self.numBins = 10
         self.savePath = "./Board Test/"
 
@@ -892,23 +892,22 @@ class Testing():
         """
 
         for channel in self.readout.channel_names:
-            for j in range(self.numBins):
-                
-                voltage_arr = self.readout.readoutDictionary[channel]["V [V]"][-1]
-                voltage_bins = np.reshape(voltage_arr, (self.numBins, int(len(voltage_arr)/self.numBins)))
-                voltage_bins = np.average(voltage_bins, 1)
 
-                res_arr = self.readout.readoutDictionary[channel]["R [kohms]"][-1]
-                res_bins = np.reshape(res_arr, (self.numBins, int(len(voltage_arr)/self.numBins)))
-                res_bins = np.average(res_bins, 1)
+            voltage_arr = self.readout.readoutDictionary[channel]["V [V]"][-1]
+            voltage_bins = np.reshape(voltage_arr, (self.numBins, int(len(voltage_arr)/self.numBins)))
+            voltage_bins = np.average(voltage_bins, 1)
 
-                temp_arr = self.readout.readoutDictionary[channel]["Temp [mK]"][-1]
-                temp_bins = np.reshape(temp_arr, (self.numBins, int(len(voltage_arr)/self.numBins)))
-                temp_bins = np.average(temp_bins, 1)
+            res_arr = self.readout.readoutDictionary[channel]["R [kohms]"][-1]
+            res_bins = np.reshape(res_arr, (self.numBins, int(len(voltage_arr)/self.numBins)))
+            res_bins = np.average(res_bins, 1)
 
-                self.bin_dictionary[channel]["V [V]"].append(voltage_bins)
-                self.bin_dictionary[channel]["R [kohms]"].append(res_bins)
-                self.bin_dictionary[channel]["Temp [mK]"].append(temp_bins) 
+            temp_arr = self.readout.readoutDictionary[channel]["Temp [mK]"][-1]
+            temp_bins = np.reshape(temp_arr, (self.numBins, int(len(voltage_arr)/self.numBins)))
+            temp_bins = np.average(temp_bins, 1)
+
+            self.bin_dictionary[channel]["V [V]"].append(voltage_bins)
+            self.bin_dictionary[channel]["R [kohms]"].append(res_bins)
+            self.bin_dictionary[channel]["Temp [mK]"].append(temp_bins) 
 
     def PrintReadout(self, channels_to_print:ArrayLike):
         """
@@ -997,13 +996,12 @@ class Testing():
                     
                     raw_data = np.load(filename)
 
-                    t_avg = raw_data["average_"+dataType+"_time"]
-                    t_binned = raw_data["binned_"+dataType+"_time"]
-
                     self.LoadedDataDictionaryAveraged[channel][loadDictionary[dataType]] = np.append(self.LoadedDataDictionaryAveraged[channel][loadDictionary[dataType]], raw_data["average_" + dataType])
                     self.LoadedDataDictionaryBinned[channel][loadDictionary[dataType]] = np.append(self.LoadedDataDictionaryBinned[channel][loadDictionary[dataType]], raw_data["binned_" + dataType])
-                    self.LoadedDataDictionaryAveraged[channel]["Time"] = np.append(self.LoadedDataDictionaryAveraged[channel]["Time"], t_avg)
-                    self.LoadedDataDictionaryBinned[channel]["Time"] = np.append(self.LoadedDataDictionaryBinned[channel]["Time"], t_binned)
+                    
+                    if dataType == "T": #Appends Time data on last cycle
+                        self.LoadedDataDictionaryAveraged[channel]["Time"] = np.append(self.LoadedDataDictionaryAveraged[channel]["Time"], raw_data["average_"+dataType+"_time"])
+                        self.LoadedDataDictionaryBinned[channel]["Time"] = np.append(self.LoadedDataDictionaryBinned[channel]["Time"], raw_data["binned_"+dataType+"_time"])
 
                     count += 1
                     filename = "{0}_{1}.npz".format(rootFilename, count)
@@ -1030,6 +1028,9 @@ class Testing():
 
         self.saveCounter += 1
         split_time_array = self.CalculateSplitTime()
+        
+        if not os.path.isdir(os.path.realpath(self.savePath)):
+            os.makedirs(self.savePath)
 
         for channel in self.readout.readoutDictionary:
             filename = self.savePath + channel + "_V_" + str(self.saveCounter)
@@ -1111,13 +1112,13 @@ class Testing():
         elif graph_mode == 's':
             graphTitle = "Graph Showing Binned Data for Specified Channels"
             for channel in channels:
-                self.ax.plot(self.RescaleTime(self.LoadedDataDictionaryBinned[channel]["Time"], time_mode),self.LoadedDataDictionaryBinned[channel][attr], label = channel)
+                self.ax.scatter(self.RescaleTime(self.LoadedDataDictionaryBinned[channel]["Time"], time_mode),self.LoadedDataDictionaryBinned[channel][attr], label = channel)
         
         elif graph_mode == 'as':
             graphTitle = "Graph Showing Average and Binned Data for Specified Channels"
             for channel in channels:
                 self.ax.plot(self.RescaleTime(self.LoadedDataDictionaryAveraged[channel]["Time"], time_mode),self.LoadedDataDictionaryAveraged[channel][attr], label = channel + "_avg")
-                self.ax.plot(self.RescaleTime(self.LoadedDataDictionaryBinned[channel]["Time"], time_mode),self.LoadedDataDictionaryBinned[channel][attr], label = channel + "_bin")
+                self.ax.scatter(self.RescaleTime(self.LoadedDataDictionaryBinned[channel]["Time"], time_mode),self.LoadedDataDictionaryBinned[channel][attr], label = channel + "_bin")
         
         else:
             print("Undefined graph mode.")
@@ -1129,10 +1130,11 @@ class Testing():
         plt.legend()
         plt.show()
 
-# #Stream Test
-readoutObj = ColdThermometryReadout('56')
-readoutObj.Stream()
+#Stream Test
+# readoutObj = ColdThermometryReadout('56')
+# readoutObj.Stream()
 
 #Load Data
-# testing = Testing()
-# testing.LoadData(["AIN56", "AIN55"])
+testing = Testing()
+testing.LoadData(["AIN56"], './Board Test/')
+testing.GraphData(["AIN56"], "as")
