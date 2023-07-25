@@ -6,38 +6,29 @@ Developed By: N. Hosein, A. Manduca
 University of Pennsylvania
 """
 
-import os
-import sys
+import os, sys, time, logging
 import numpy as np
-from numpy.typing import ArrayLike
-from labjack import ljm
-from datetime import datetime
-import time
-from scipy import signal, stats
-import logging
 import matplotlib 
 import matplotlib.pyplot as plt
 import pandas as pd
+from numpy.typing import ArrayLike
+from labjack import ljm
+from datetime import datetime
+from scipy import signal, stats
 
 matplotlib.use("tkagg")
 logging.basicConfig(filename='coldtherm.log', level=logging.INFO, format='%(asctime)s - %(levelname)s - %(message)s', filemode='a')
 
 class ColdThermometryReadout():
-    def __init__(self, channels_to_read:str, scan_amount:int, sample_rate:int=1600):
+    def __init__(self, channels_to_read:str):
        """
         Readout class for the cold thermometry system.
 
         Parameters
         ----------
-        sample_rate : int, default = 1600
-            The number of samples taken by the LabJack per stream per channel.
-
         channels_to_read : str
             Input string specifying the channels to be read. Input 'all' for all channels or the channels spearated by the
             commas: '40,41,42'
-
-        scan_amount : int
-            The number of streams to be taken. Set to -1 for an infintie number of readings.
 
         Attributes
         ----------
@@ -45,13 +36,13 @@ class ColdThermometryReadout():
             The LabJack handle object of the LabJack currently connected to the computer.
 
         setup_names : str
-            #TODO: CHANGE THIS
+            List of strings to write(LabJack attribute).
 
         sample_rate : int
             The number of samples taken by the LabJack per stream per channel.
 
-        scan_list : list
-            #TODO: CHANGE THIS
+        scan_list : ArrayLike
+            List of Modbus addresses to collect samples from, per scan(LabJack attribute).
 
         scan_amount : int
             The number of streams to be taken. Set to -1 for an infintie number of readings.
@@ -68,23 +59,23 @@ class ColdThermometryReadout():
         stream_num : int
             The current stream number of the instance.
 
-        temp_list : list #TODO: DELETE
-            The DC signal in volts to be outputted from the output port set by `BiasOutputPort`.
-
-        res_list : list #TODO: DELETE
-            The DC signal in volts to be outputted from the output port set by `BiasOutputPort`.
-
-        upperstage : dict
+        upper_stage_config : dict
             Dictionary storing the upper stage bias configuration of the board.
 
-        middlestage : dict
+        middle_stage_config : dict
             Dictionary storing the middle stage bias configuration of the board.
             
-        lowerstage : dict
+        lower_stage_config : dict
             Dictionary storing the lower stage bias configuration of the board.
+            
+        ResistorCalibrationDictionary : dict
+            Dictionary containing the calibration curve data for each resistor/channel.
             
         biasMode : int
             The DC signal in volts to be outputted from the output port set by `BiasOutputPort`.
+            0: LS; 1: MS; 2: US; -1: Override
+
+            Set to an abitrary integer that is not one of the above to set the system in automatic bias switching mode.
 
         BiasSwitchAveragingInterval : int
             The interval over which the board averages to determine the current temperature stage.
@@ -94,39 +85,42 @@ class ColdThermometryReadout():
 
         BiasOutputPort:str, default = 'DAC0'
             Name of the DAC port from which the DC voltage to generate the signal is sent.
+        
+        ResistorCalibrationMappingPath : str
+            String specifying the location of the csv file which contains the mapping to the calibration file of each resistor.
+        
+        ReferenceChannel : str
+            The name of the drift reference channel. Eg. 'AIN84'
+
+        ReferenceChannelResistance : float
+            The value of the fixed resistances attached to the reference channel in kOhms.
         """
        
+       #Configuable Settings
+       self.sample_rate:int = 1600
+       self.scan_amount:int = 10000
+       self.readoutBufferSize:int = 100000 
+       self.upper_stage_config:dict = {"UL":100,"LL":1.2,"Bias":5, "CalibratedBias":5}
+       self.middle_stage_config:dict = {"UL":1.2,"LL":0.15,"Bias":0.2, "CalibratedBias":0.2}
+       self.lower_stage_config:dict = {"UL":0.15,"LL":0,"Bias":0.02, "CalibratedBias":0.02}
+       self.BiasSwitchAveragingInterval:int = 30
+       self.overrideBias:float = 3
+       self.BiasOutputPort:str = "DAC0"
+       self.ResistorCalibrationMappingPath:str = "./resistor_calibration_mapping.csv"
+       self.ReferenceChannel:str = "AIN84"
+       self.ReferenceChannelResistance:float = 20
+    
+       #Non-Configurable Settings
        self.handle = None
        self.setup_names:str = ''
        self.setup_values:str = ''
-       self.sample_rate:int = sample_rate
        self.scan_list:list = None
-       self.scan_amount:int = scan_amount
        self.channel_names:list = []
        self.readoutDictionary:dict = {}
-       self.readoutBufferSize:int = 100000
        self.stream_num:int = 1
-
-       self.temp_list:list = []
-       self.res_list:list = []
-       self.res_error:list = []
-
        self.ResistorCalibrationDictionary = {}
-
-       #Stage Setup in K and V
-       self.upperstage:dict = {"UL":100,"LL":1.2,"Bias":5, "CalibratedBias":5}
-       self.middlestage:dict = {"UL":1.2,"LL":0.15,"Bias":0.2, "CalibratedBias":0.2}
-       self.lowerstage:dict = {"UL":0.15,"LL":0,"Bias":0.02, "CalibratedBias":0.02}
-       self.biasMode:int = 10 #0: LS, 1: MS, 2: US #-1: Override
-       self.BiasSwitchAveragingInterval:int = 30
+       self.biasMode:int = 10 #Arbitrarily Set
        
-       self.overrideBias:float = 3
-       
-       self.BiasOutputPort:str = "DAC0"
-
-       self.ResistorCalibrationMappingPath = "./resistor_calibration_mapping.csv"
-
-       #self.LoadResReadoutGraph()
        self.OpenConnection()
        self.SetupLabJack()
        self.SetChannelsToRead(channels_to_read)
@@ -134,6 +128,24 @@ class ColdThermometryReadout():
        self.LoadResistorCalibration(self.ResistorCalibrationMappingPath)
 
        self.TestingModule = Testing(self)
+
+    def ClearMemoryBuffer(self):
+        """
+        Checks whethe to clear the memory buffer `readoutDictionary`. Buffer is cleared if the size of `readoutDictionary` in bytes is 
+        greater than the value set in `readoutBufferSize`.
+
+        Parameters
+        ----------
+        None
+
+        Returns
+        -------
+        None
+        """
+
+        if sys.getsizeof(self.readoutDictionary) >= self.readoutBufferSize:
+            self.readoutDictionary.clear()
+            self.GenerateDictionaries()
 
     def BiasSwitch(self, bias:float):
         """
@@ -153,7 +165,7 @@ class ColdThermometryReadout():
 
     def CheckBiasSwitch(self, ovrr:bool = False):
         """
-        Checks whether the bias signal needs to be switched. By default the the bias signal is set automatically by the values set in the dictionaries `lowerstage`, `middlestage`, and `upperstage`.
+        Checks whether the bias signal needs to be switched. By default the the bias signal is set automatically by the values set in the dictionaries `lower_stage_config`, `middle_stage_config`, and `upper_stage_config`.
         The interval over which the temperature values are averaged to look for stage changes are given by `BiasSwitchAveragingInterval`.
 
         Parameters
@@ -179,17 +191,17 @@ class ColdThermometryReadout():
             if channeltemp < lowestChannelTemp:
                 lowestChannelTemp = channeltemp
 
-        if lowestChannelTemp >= self.upperstage["LL"]:
+        if lowestChannelTemp >= self.upper_stage_config["LL"]:
             if self.biasMode != 0:
-                self.BiasSwitch(self.upperstage["CalibratedBias"])
+                self.BiasSwitch(self.upper_stage_config["CalibratedBias"])
 
-        elif lowestChannelTemp < self.upperstage["UL"] and lowestChannelTemp >= self.middlestage["LL"]:
+        elif lowestChannelTemp < self.upper_stage_config["UL"] and lowestChannelTemp >= self.middle_stage_config["LL"]:
             if self.biasMode != 1:
-                self.BiasSwitch(self.middlestage["CalibratedBias"])
+                self.BiasSwitch(self.middle_stage_config["CalibratedBias"])
 
-        elif lowestChannelTemp < self.lowerstage["UL"]:
+        elif lowestChannelTemp < self.lower_stage_config["UL"]:
             if self.biasMode != 2:
-                self.BiasSwitch(self.lowerstage["CalibratedBias"])
+                self.BiasSwitch(self.lower_stage_config["CalibratedBias"])
 
     def LoadResistorCalibration(self, path:str="./resistor_calibration_mapping.csv"):
         """
@@ -221,7 +233,7 @@ class ColdThermometryReadout():
         for i in range(len(channel_names)):
             mappingdictionary[channel_names[i]]  = {"Path":calibration_curve_paths[i]}
         
-        for channel_name in self.channel_names:
+        for channel_name in self.channel_names: #only loads the channels which are in use.
             try:
                 path = os.path.realpath(mappingdictionary[channel_name]["Path"])
              
@@ -235,11 +247,9 @@ class ColdThermometryReadout():
                     res = data[:,1]
                     drdt = data[:,2]
                     sd = data[:,3]
-                    #test
-                    pass
+                   
                     self.ResistorCalibrationDictionary[channel_name] = {"Temp [K]":temp[::-1], "log(R [Ohms])":np.log10(res[::-1]), "drdt": drdt[::-1], "sd": sd[::-1]} #reverses array for np.interp
 
-                pass
             except Exception:
                 error = sys.exc_info()[1]
                 print("An error occured while loading the calibration for channel: " + channel_name)        
@@ -261,16 +271,6 @@ class ColdThermometryReadout():
 
         for n in self.channel_names:
             self.readoutDictionary[n] = {"V [V]":[],"R [kohms]":[],"Temp [mK]":[],"Time":[]}
-
-    def LoadResReadoutGraph(self, file = os.getcwd() + "\\temp_ref.csv"): #TODO Fix this
-        """
-        ###CORE Function
-        Loads the Calibration Curve of the thermometer.
-        Searches for file in the folder by default. May be specfied.
-        """
-
-        file = os.getcwd() + "/temp_ref.csv"
-        self.temp_list, self.res_list, self.res_error = np.loadtxt(file, delimiter = ",", skiprows = 0, usecols = (0, 1, 2), unpack = True)
 
     def OpenConnection(self):
         """
@@ -354,18 +354,34 @@ class ColdThermometryReadout():
             print(sys.exc_info()[1])
             raise
     
-    def SetupLabJack(self, setup_names=None, setup_values=None): #TODO Fix this
+    def SetupLabJack(self, setup_names:ArrayLike=None, setup_values:ArrayLike=None):
         """
-        # set range, resolution, and settling time for channelsfactor
-        # note:
-        #   Negative channel: single ended = 199, differential = 1
-        #   Range: The instrumentation amplifier in the T7 provides 4 different gains:
-        #         x1 (RANGE is ±10 volts), enter 10.0
-        #         x10 (RANGE is ±1 volts), enter 1.0
-        #         x100 (RANGE is ±0.1 volts), enter 0.1
-        #         x1000 (RANGE is ±0.01 volts), enter 0.01
-        #   Resolution index = Default (0)
-        #   Settling, in microseconds = Auto (0) resource on settling times: https://old3.labjack.com/support/app-notes/SettlingTime
+        Sets the LabJack.
+
+        Parameters
+        ----------
+        setup_names : ArrayLike
+            Array of names to write. See LabJack documentation.
+
+        setup_values : ArrayLike
+            Array of values to write. See LabJack documentation.
+        Returns
+        -------
+        None
+
+        Notes
+        -----
+       
+        set range, resolution, and settling time for channels factor
+        note:
+        Negative channel: single ended = 199, differential = 1
+        Range: The instrumentation amplifier in the T7 provides 4 different gains:
+        x1 (RANGE is ±10 volts), enter 10.0
+        x10 (RANGE is ±1 volts), enter 1.0
+        x100 (RANGE is ±0.1 volts), enter 0.1
+        x1000 (RANGE is ±0.01 volts), enter 0.01
+        Resolution index = Default (0)
+        Settling, in microseconds = Auto (0) resource on settling times: https://old3.labjack.com/support/app-notes/SettlingTime
                 
         """
 
@@ -459,11 +475,12 @@ class ColdThermometryReadout():
                     self.readoutDictionary[self.channel_names[k]]["R [kohms]"].append(res)
                     self.readoutDictionary[self.channel_names[k]]["Temp [mK]"].append(temp)
                     self.readoutDictionary[self.channel_names[k]]["Time"].append(streamtimeutc)
-                    pass
 
                 self.CheckBiasSwitch()
 
                 self.TestingModule.TestingRoutine()
+
+                self.ClearMemoryBuffer()
 
             except ljm.LJMError:
                 errorcount += 1
@@ -472,7 +489,6 @@ class ColdThermometryReadout():
                 if ljme.errorCode == 1301: #buffer full:
                     print("Buffer Full")
                     
-
                 elif ljme.errorCode == 1263: #No bytes Received.
                     print("No bytes received. Restarting Stream.")
 
@@ -499,7 +515,7 @@ class ColdThermometryReadout():
         
         print("Streaming Complete. \nTotal Scans: {2}; Errors Encountered: {0}; Stream Time: {1}".format(str(errorcount), str(processtime), str(total_scans)))
 
-    def ConvertTemperature(self, resistance:ArrayLike, channel_name:str, unit:str="mK"): #TODO: FIX THIS
+    def ConvertTemperature(self, resistance:ArrayLike, channel_name:str, unit:str="mK"):
         """
         Converts a given resistance value to a temperature value based on the resistance-temperature calibration of the given resistor.
 
@@ -644,21 +660,20 @@ class Testing():
             The axis object of the live readout graph.
         """
         
+        #Configurable Settings
+        self.channels_to_print = ["AIN56"]
+        self.channels_to_plot = ["AIN56"]
+        self.saveInterval = 60
+        self.numBins = 10
+        self.savePath = "./Board Test/"
 
+        #Non-Configurable Settings
         self.readout = readoutObject
         self.avg_dictionary = {}
         self.bin_dictionary = {}
-
         self.LoadedDataDictionaryAveraged = {}
         self.LoadedDataDictionaryBinned = {}
-        
-        self.saveInterval = 30
-        self.numBins = 10
         self.saveCounter = 0
-
-        self.channels_to_print = ["AIN56"]
-        self.channels_to_plot = ["AIN56"]
-
         self.fig = None
         self.ax = None
 
@@ -764,7 +779,7 @@ class Testing():
     
     def setup_animation(self):
         """
-        Sets the interactive property of the graph and assigns the figure and axes objects to the Testing object.
+        Sets the interactive property of the graph if a live readout is in progress, and assigns the figure and axes objects to the Testing object.
         
         Parameters
         ----------
@@ -774,10 +789,14 @@ class Testing():
         -------
         None
         """
-
-        plt.ion() #Sets interactive property of the plot.
-        self.fig = plt.figure() #Assigns the figure to the game object.
-        self.ax = self.fig.subplots() #Stores the axes in the plotting object
+        if self.readout == None:
+            plt.ioff()
+            self.fig = plt.figure() 
+            self.ax = self.fig.subplots()
+        else:
+            plt.ion() 
+            self.fig = plt.figure() 
+            self.ax = self.fig.subplots() 
 
     def Plot(self, channels:ArrayLike, attr:str = "V [V]", graphtitle:str = "Cold Thermometry Test Readout"):
         """
@@ -1013,165 +1032,105 @@ class Testing():
         split_time_array = self.CalculateSplitTime()
 
         for channel in self.readout.readoutDictionary:
-            filename = channel + "_V_" + str(self.saveCounter)
+            filename = self.savePath + channel + "_V_" + str(self.saveCounter)
             np.savez(filename, average_V_time = self.avg_dictionary[channel]["Time"], average_V = self.avg_dictionary[channel]["V [V]"], binned_V_time = split_time_array, binned_V = self.bin_dictionary[channel]["V [V]"])
             
-            filename = channel + "_R_" + str(self.saveCounter)
+            filename = self.savePath + channel + "_R_" + str(self.saveCounter)
             np.savez(filename, average_R_time = self.avg_dictionary[channel]["Time"], average_R = self.avg_dictionary[channel]["R [kohms]"], binned_R_time = split_time_array, binned_R = self.bin_dictionary[channel]["R [kohms]"])
             
-            filename = channel + "_T_" + str(self.saveCounter)
+            filename = self.savePath + channel + "_T_" + str(self.saveCounter)
             np.savez(filename, average_T_time = self.avg_dictionary[channel]["Time"], average_T = self.avg_dictionary[channel]["Temp [mK]"], binned_T_time = split_time_array, binned_T = self.bin_dictionary[channel]["Temp [mK]"])
          
         self.GenerateDictionaries()
 
-class Analysis():
-    """
-    
-    """
-
-    def __init__(self):
-        self.avgdata = np.array([])
-        self.avgtime = np.array([])
-        self.splitdata = np.array([])
-        self.splittime = np.array([])
-
-        self.avgdata2 = np.array([])
-        self.avgtime2 = np.array([])
-        self.splitdata2 = np.array([])
-        self.splittime2 = np.array([])
-
-    def LoadData2(self, root_filename):
+    def RescaleTime(self, time_array:ArrayLike, time_mode:str = "minutes"):
         """
-        
-        """
+        Rescales time for graphing functions relative to the time of the first data point.
 
-        count = 1
-        filename = "{0}_{1}.npz".format(root_filename, count)
+        Parameters
+        ----------
+        time_array : ArrayLike
+            An array containing the time data in Unix time.
 
-        while(os.path.isfile(filename)):
-            raw_data = np.load(filename)
+        time_mode : str
+            String specifying the time interval to be outputted.
+            Accepts: "seconds", "minutes", "hours"
 
-            self.avgdata2 = np.append(self.avgdata2, raw_data["avg"])
-            self.avgtime2 = np.append(self.avgtime2, raw_data["avgt"])
-            self.splitdata2 = np.append(self.splitdata2, raw_data["split_data"])
-            self.splittime2 = np.append(self.splittime2, raw_data["split_time"])
+        Returns
+        -------
+        time_array : ArrayLike
+            Array with the rescaled time values.
+        """  
 
-            count += 1
-            filename = "{0}_{1}.npz".format(root_filename, count)
-        pass
-
-    def LoadData(self, root_filename):
-        """
-        
-        """
-
-        count = 1
-        filename = "{0}_{1}.npz".format(root_filename, count)
-
-        while(os.path.isfile(filename)):
-            raw_data = np.load(filename)
-
-            self.avgdata = np.append(self.avgdata, raw_data["avg"])
-            self.avgtime = np.append(self.avgtime, raw_data["avgt"])
-            self.splitdata = np.append(self.splitdata, raw_data["split_data"])
-            self.splittime = np.append(self.splittime, raw_data["split_time"])
-
-            count += 1
-            filename = "{0}_{1}.npz".format(root_filename, count)
-        pass
-
-    def GraphAverageData(self, mode:str):
-        """
-        mode - time in seconds, minutes or hours
-        """
-
-        plt.plot(self.RescaleTime(self.avgtime, mode), self.avgdata)
-        plt.plot(self.RescaleTime(self.avgtime2, mode), self.avgdata2)
-        plt.plot(self.RescaleTime(self.avgtime, mode), self.avgdata2/self.avgdata, label = "ratio")
-        plt.plot(self.RescaleTime(self.avgtime, mode), self.avgdata - self.avgdata2, label = "diff")
-        #plt.loglog(abs(np.fft.fft(self.avgdata[1:])), label = "fft data1")
-
-        # import scipy.signal
-
-        # f, pxx = scipy.signal.welch(self.avgdata)
-        # plt.plot(f, np.sqrt(pxx))
-    
-        plt.title("Average Data")
-        plt.xlabel("Time/{0}".format(mode))
-        plt.ylabel("Voltage/V")
-        plt.legend()
-        plt.show()
-
-    
-    def GraphSplitAverageData(self, mode:str):
-        """
-         mode - time in seconds, minutes or hours
-        """
-
-        plt.plot(self.RescaleTime(self.splittime, mode), self.splitdata, label = "data1")
-        plt.plot(self.RescaleTime(self.splittime, mode), self.splitdata2, label = "data2")
-
-        import scipy.signal
-
-        # f, pxx = scipy.signal.welch(self.splitdata, 10)
-        # plt.plot(f, pxx)
-
-        plt.title("Split Average Data")
-        plt.xlabel("Time/{0}".format(mode))
-        plt.ylabel("Voltage/V")
-        plt.legend()
-        plt.show()
-
-    def GraphAverageDataWithSplitScatter(self, mode:str):
-        """
-         mode - time in seconds, minutes or hours
-        """
-
-        plt.plot(self.RescaleTime(self.avgtime, mode), self.avgdata, color = "r", linewidth = 3, label = "Average Data - data1")
-        plt.plot(self.RescaleTime(self.avgtime2, mode), self.avgdata2, color = "r", linewidth = 3, label = "Average Data - data2")
-        
-        plt.scatter(self.RescaleTime(self.splittime, mode), self.splitdata, label = "Split Data Points - data1")
-        plt.scatter(self.RescaleTime(self.splittime2, mode), self.splitdata2, label = "Split Data Points - data2")
-        
-        plt.title("Average Data with Split Reading Scatter")
-        plt.xlabel("Time/{0}".format(mode))
-        plt.ylabel("Voltage/V")
-        plt.legend()
-        plt.show()
-
-    def RescaleTime(self, time_array, mode:str):
-        """
-         mode - time in seconds, minutes or hours
-        """
-
-        if mode == "seconds":
+        if time_mode == "seconds":
             return (time_array - time_array[0])/1
-        elif mode == "minutes":
+        elif time_mode == "minutes":
             return (time_array - time_array[0])/60
-        elif mode == "hours":
+        elif time_mode == "hours":
             return (time_array - time_array[0])/3600
         else:
             return 0
-        
-    def PowerSpectrum(self, data, dps):
-        """
-        
-        """
 
-        f, pxx = signal.welch(data, dps)
-        plt.plot(f, np.sqrt(pxx), label = "Power Spectrum Data 1")
-        
-        # result = integrate.quad(np.sqrt(pxx), 0, 5)
-        # print(result)
+    def GraphData(self, channels:ArrayLike, graph_mode:str = "a", attr:str = "Temp [mK]", time_mode:str = "minutes"):
+        """
+        Graphs the specified data for the given specified channels. NB: `LoadData()` must be called prior to calling this function.
+         
+        For more flexibility, the data loaded can be pulled directly from
+        `LoadedDataDictionaryAveraged` and `LoadedDataDictionaryBinned`.
 
-        plt.title("Power Spectrum")
-        plt.xlabel("Frequency/Hz")
-        plt.ylabel("Units")
+        Parameters
+        ----------
+        channels : Arraylike
+            An array of the channels to be read. Each element of the array must be the channel name.
+            Eg: ["AIN50", "AIN51", "AIN52"]
+
+        time_mode : str, default = "minutes"
+            String specifying the time interval to be outputted.
+            Accepts: "seconds", "minutes", "hours"
+
+        attr : str, default = "Temp [mK]"
+            String specifying the data type of the data to be plotted.
+            Accepts: "V [V]"; "R [kohms]"; "Temp [mK]"
+
+        graph_mode : str, default = "a"
+            String specifying the graph to be outputted.
+            Modes: 'a' : Average; 's' : Split/Binned; 'as' : "Split and Average"
+
+        Returns
+        -------
+        None
+        """ 
+
+        graphTitle = "null"
+
+        if graph_mode == 'a':
+            graphTitle = "Graph Showing Average Data for Specified Channels"
+            for channel in channels:
+                self.ax.plot(self.RescaleTime(self.LoadedDataDictionaryAveraged[channel]["Time"], time_mode),self.LoadedDataDictionaryAveraged[channel][attr], label = channel)
+        
+        elif graph_mode == 's':
+            graphTitle = "Graph Showing Binned Data for Specified Channels"
+            for channel in channels:
+                self.ax.plot(self.RescaleTime(self.LoadedDataDictionaryBinned[channel]["Time"], time_mode),self.LoadedDataDictionaryBinned[channel][attr], label = channel)
+        
+        elif graph_mode == 'as':
+            graphTitle = "Graph Showing Average and Binned Data for Specified Channels"
+            for channel in channels:
+                self.ax.plot(self.RescaleTime(self.LoadedDataDictionaryAveraged[channel]["Time"], time_mode),self.LoadedDataDictionaryAveraged[channel][attr], label = channel + "_avg")
+                self.ax.plot(self.RescaleTime(self.LoadedDataDictionaryBinned[channel]["Time"], time_mode),self.LoadedDataDictionaryBinned[channel][attr], label = channel + "_bin")
+        
+        else:
+            print("Undefined graph mode.")
+            return
+
+        plt.title(graphTitle)
+        plt.xlabel("t [" + time_mode + "]")
+        plt.ylabel(attr)
         plt.legend()
         plt.show()
 
 # #Stream Test
-readoutObj = ColdThermometryReadout('56', 10000)
+readoutObj = ColdThermometryReadout('56')
 readoutObj.Stream()
 
 #Load Data
