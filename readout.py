@@ -56,10 +56,7 @@ class ColdThermometryReadout():
 
         readoutDictionary : dict
             Dictionary storing the voltage(V), resistance(kOhms), temperatures(mK), and timestamps for each stream.
-        
-        readoutBufferSize : int
-            Maximum size of `readoutDictionary` in bytes before it is cleared.
-
+    
         stream_num : int
             The current stream number of the instance.
 
@@ -98,12 +95,14 @@ class ColdThermometryReadout():
 
         ReferenceChannelResistance : float
             The value of the fixed resistances attached to the reference channel in kOhms.
+
+        MemoryBufferSize : int
+            The size in terms of number of samples to store in `readoutDictionary`. Eg. 3600 stores data for 3600 samples or for the past hour at a sample rate of 1Hz.
         """
        
        #Configuable Settings
        self.sample_rate:int = 1600
-       self.scan_amount:int = 10
-       self.readoutBufferSize:int = 5000
+       self.scan_amount:int = 10000
        self.upper_stage_config:dict = {"UL":100,"LL":1.2,"Bias":5, "CalibratedBias":5}
        self.middle_stage_config:dict = {"UL":1.2,"LL":0.15,"Bias":0.2, "CalibratedBias":0.2}
        self.lower_stage_config:dict = {"UL":0.15,"LL":0,"Bias":0.02, "CalibratedBias":0.02}
@@ -113,6 +112,7 @@ class ColdThermometryReadout():
        self.ResistorCalibrationMappingPath:str = "./resistor_calibration_mapping.csv"
        self.ReferenceChannel:str = "AIN84"
        self.ReferenceChannelResistance:float = 20
+       self.MemoryBufferSize:int = 3600
     
        #Non-Configurable Settings
        self.handle = None
@@ -147,45 +147,9 @@ class ColdThermometryReadout():
         None
         """
 
-        print self.total_size(self.readoutDictionary)
-        if self.total_size(self.readoutDictionary) >= self.readoutBufferSize:
+        if self.stream_num % self.MemoryBufferSize == 0:
             self.readoutDictionary.clear()
             self.GenerateDictionaries()
-
-    def total_size(o, handlers={}, verbose=False):
-        """ 
-        Checks the total memory utilized by a given container in bytes. See source below for further usage information.
-
-        Source: https://code.activestate.com/recipes/577504/
-        """
-        dict_handler = lambda d: chain.from_iterable(d.items())
-        all_handlers = {tuple: iter,
-                        list: iter,
-                        deque: iter,
-                        dict: dict_handler,
-                        set: iter,
-                        frozenset: iter,
-                    }
-        all_handlers.update(handlers)     # user handlers take precedence
-        seen = set()                      # track which object id's have already been seen
-        default_size = getsizeof(0)       # estimate sizeof object without __sizeof__
-
-        def sizeof(o):
-            if id(o) in seen:       # do not double count the same object
-                return 0
-            seen.add(id(o))
-            s = getsizeof(o, default_size)
-
-            if verbose:
-                print(s, type(o), repr(o), file=stderr)
-
-            for typ, handler in all_handlers.items():
-                if isinstance(o, typ):
-                    s += sum(map(sizeof, handler(o)))
-                    break
-            return s
-
-        return sizeof(o)
 
     def BiasSwitch(self, bias:float):
         """
