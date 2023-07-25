@@ -15,6 +15,10 @@ from numpy.typing import ArrayLike
 from labjack import ljm
 from datetime import datetime
 from scipy import signal, stats
+from sys import getsizeof, stderr
+from itertools import chain
+from collections import deque
+from reprlib import repr
 
 matplotlib.use("tkagg")
 logging.basicConfig(filename='coldtherm.log', level=logging.INFO, format='%(asctime)s - %(levelname)s - %(message)s', filemode='a')
@@ -131,7 +135,7 @@ class ColdThermometryReadout():
 
     def ClearMemoryBuffer(self):
         """
-        Checks whethe to clear the memory buffer `readoutDictionary`. Buffer is cleared if the size of `readoutDictionary` in bytes is 
+        Checks whether to clear the memory buffer `readoutDictionary`. Buffer is cleared if the size of `readoutDictionary` in bytes is 
         greater than the value set in `readoutBufferSize`.
 
         Parameters
@@ -143,9 +147,45 @@ class ColdThermometryReadout():
         None
         """
 
-        if sys.getsizeof(self.readoutDictionary) >= self.readoutBufferSize:
+        print self.total_size(self.readoutDictionary)
+        if self.total_size(self.readoutDictionary) >= self.readoutBufferSize:
             self.readoutDictionary.clear()
             self.GenerateDictionaries()
+
+    def total_size(o, handlers={}, verbose=False):
+        """ 
+        Checks the total memory utilized by a given container in bytes. See source below for further usage information.
+
+        Source: https://code.activestate.com/recipes/577504/
+        """
+        dict_handler = lambda d: chain.from_iterable(d.items())
+        all_handlers = {tuple: iter,
+                        list: iter,
+                        deque: iter,
+                        dict: dict_handler,
+                        set: iter,
+                        frozenset: iter,
+                    }
+        all_handlers.update(handlers)     # user handlers take precedence
+        seen = set()                      # track which object id's have already been seen
+        default_size = getsizeof(0)       # estimate sizeof object without __sizeof__
+
+        def sizeof(o):
+            if id(o) in seen:       # do not double count the same object
+                return 0
+            seen.add(id(o))
+            s = getsizeof(o, default_size)
+
+            if verbose:
+                print(s, type(o), repr(o), file=stderr)
+
+            for typ, handler in all_handlers.items():
+                if isinstance(o, typ):
+                    s += sum(map(sizeof, handler(o)))
+                    break
+            return s
+
+        return sizeof(o)
 
     def BiasSwitch(self, bias:float):
         """
