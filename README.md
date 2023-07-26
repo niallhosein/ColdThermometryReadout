@@ -1,9 +1,5 @@
 # Cold Thermometry Readout
 
-## Structure
-
-### Settings
-
 ## Setup
 
 ### Resistor Calibration Curve
@@ -80,7 +76,7 @@ self.ReferenceChannelResistance:float = 20 #In kOhms
 #### Miscellaneous
 1. `MemoryBufferSize` - The number of scans stored in `readoutDictionary`. After `MemoryBufferSize` scans, `readoutDictionary` is cleared.
 
-### Calibration
+#### Calibration
 Obtain the calibration equation for the board by calling <LINK THING HERE>. In the `ConvertResistance()` function of `ColdThermometryReadout`, set the calibration equation obtained as the output. A sample is given below:
 
 ~~~python
@@ -90,11 +86,49 @@ return res
 
 *This should be a linear equation relating a voltage to a resistance.*
 
-### Starting a Stream Session
+## Testing
+The `Testing` class contains all of the functions that are not necessary for the board to operate. This includes: live readout(graphical and to console), statistics functions, testing routines, and data analysis variables. Of importance, it also contains the `CalibrateBoard()` function.
+
+### Setup
+All settings for the `Testing` class are found in the `__init__()` function under the section 'Configurable Settings'. The categories are given below:
+
+#### Live Print and Plotting Channels
+The channels to be printed and plotted are controlled by `channels_to_print` and `channels_to_plot` respectively, each of which is a list of the channel names for the respective operation. A sample is given below:
+
+~~~python
+channels_to_print = ["AIN40", "AIN41", "AIN42"]
+channels_to_plot = ["AIN56"]
+~~~
+
+#### Save Settings
+The save settings are controlled by `saveInterval` and `savePath`. `saveInterval` gives the number of streams which must occur before data is saved to disc. `savePath` gives the path of the folder where the files will be saved.
+
+#### Miscellaneous
+1. `numBins` - This is the number of bins to create for each scan. By default, this is set to `10` and with a `scan_rate` of `1600`, this results in 10 bins of size 160. 
+
+### Testing Routine
+After each scan, the `TestingRoutine()` function is called. This function calls the necessary functions required for live streaming and saving data for later analysis. A sample testing routine is given below:
+
+~~~python
+self.AppendAverageReadout()
+self.AppendBinReadouts()
+self.PrintReadout(self.channels_to_print)
+
+self.Plot(self.channels_to_plot)
+
+#Save Data Files
+if self.readout.stream_num % self.saveInterval == 0:
+    self.SaveDataFiles()
+~~~
+
+### Calibrate Board
+The `CalibrateBoard()` function automatically calibrates the board and outputs a linear equation relating an output voltage to a resistance value. This function prompts the user to set the input resistance of the board to fixed values of their choice, and then streams for a specified number of scans. Using the data obtained from these scans, and the input resistances, it performs linear regression analysis on the data to obtain the calibration equation. 
+
+## Usage
+### Starting a Streaming Session
 A stream session can be started by creating an instance of the `ColdThermometryReadout` class and calling `Stream()`. **Note: The channels to be read is required when creating an instance of `ColdThermometryReadout`.**
 
 ~~~python
 readoutObj = ColdThermometryReadout('40,41,42,43') #Use 'all' for all channels.
 readoutObj.Stream()
 ~~~
-
