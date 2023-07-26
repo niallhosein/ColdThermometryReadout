@@ -124,6 +124,27 @@ if self.readout.stream_num % self.saveInterval == 0:
 ### Calibrate Board
 The `CalibrateBoard()` function automatically calibrates the board and outputs a linear equation relating an output voltage to a resistance value. This function prompts the user to set the input resistance of the board to fixed values of their choice, and then streams for a specified number of scans. Using the data obtained from these scans, and the input resistances, it performs linear regression analysis on the data to obtain the calibration equation. 
 
+### Loading Data
+Data is saved as `.npz` files which allows multiple `ArrayLike` objects to be stored with ease in a single file. This data can be loaded at a later time by calling the `LoadData` function of the `Testing` class.
+
+~~~python
+testing = Testing()
+testing.LoadData(["AIN56", "AIN40", "AIN41"], './Data Directory/')
+~~~
+
+The loaded data is stored in two dictionaries, `LoadedDataDictionaryAveraged` and `LoadedDataDictionaryBinned`, which store the averaged and binned data respectively.
+
+### Graphing Data
+The `GraphData` function of the `Testing` class allows for quick graphing of data. This function has three modes which are set by the `graph_mode` parameter:
+
+1. `a` - Graphs the averaged data for the specified channels as a line plot
+2. `s` - Grapahs the binned data for the specified channels as a scatter plot
+3. `as` - Graphs the averaged data for the specified channels as a line plot and the binned data for the specified channels as a scatter plot.
+
+**NOTE: `LoadData()` must be called first before using this function.**
+
+*Alternatively, and for more flexibility, the svaed data can be loaded, and the raw data required can be obtained from the `LoadedDataDictionaryAveraged` and `LoadedDataDictionaryBinned` dictionaries.*
+
 ## Usage
 ### Starting a Streaming Session
 A stream session can be started by creating an instance of the `ColdThermometryReadout` class and calling `Stream()`. **Note: The channels to be read is required when creating an instance of `ColdThermometryReadout`.**
