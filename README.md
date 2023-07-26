@@ -2,11 +2,39 @@
 
 ## Structure
 
+### Settings
+~~~python
+#Configuable Settings
+self.sample_rate:int = 1600
+self.scan_amount:int = 10000
+self.upper_stage_config:dict = {"UL":100,"LL":1.2,"Bias":5, "CalibratedBias":5}
+self.middle_stage_config:dict = {"UL":1.2,"LL":0.15,"Bias":0.2, "CalibratedBias":0.2}
+self.lower_stage_config:dict = {"UL":0.15,"LL":0,"Bias":0.02, "CalibratedBias":0.02}
+self.BiasSwitchAveragingInterval:int = 30
+self.overrideBias:float = 3
+self.BiasOutputPort:str = "DAC0"
+self.ResistorCalibrationMappingPath:str = "./resistor_calibration_mapping.csv"
+self.ReferenceChannel:str = "AIN84"
+self.ReferenceChannelResistance:float = 20
+self.MemoryBufferSize:int = 3600
+    
+#Non-Configurable Settings
+self.handle = None
+self.setup_names:str = ''
+self.setup_values:str = ''
+self.scan_list:list = None
+self.channel_names:list = []
+self.readoutDictionary:dict = {}
+self.stream_num:int = 1
+self.ResistorCalibrationDictionary = {}
+self.biasMode:int = 10 #Arbitrarily Set
+~~~
+
 ## Setup
 
 ### Resistor Calibration Curve
 ```
-0.050   6.37650933339e+04  -2.88865353564e+06  -2.26507434131e+00
+  0.050   6.37650933339e+04  -2.88865353564e+06  -2.26507434131e+00
   0.055   5.21067061211e+04  -1.94906258904e+06  -2.05728687107e+00
   0.060   4.35157796269e+04  -1.49185928308e+06  -2.05699076869e+00
   0.065   3.71238961461e+04  -1.07221325005e+06  -1.87733154352e+00
