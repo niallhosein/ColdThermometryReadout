@@ -41,11 +41,8 @@ An example calibration mapping is shown below:
 ### Configure the Readout Class
 All settings for readout class can be found in the `__init__()` function of the readout class under the heading 'Configurable Settings'. Set the values as desired. A description of each value is given below:
 
-#### sample_rate : int
-This is the number of samples taken by the LabJack per scan per channel. By default it is set to `1600` - a sample frequency of 1600Hz per channel.
-
-#### scan_amount : int
-The number of streams to be taken. Set to `-1` for an infintie number of readings.
+#### Scan Setup
+The scan setup is controlled by `sample_rate` and `scan_amount`. `sample_rate` is the number of samples taken by the LabJack per scan per channel. By default it is set to `1600` - a sample frequency of 1600Hz per channel. `scan_amount` is the number of streams to be taken. Set to `-1` for an infintie number of readings.
 
 #### Bias Switching and Stage Configurations
 The bias switching functionality is controlled `BiasSwitchAveragingInterval`, `overrideBias`, and `BiasOutputPort`. Sample values are given below:
@@ -83,9 +80,21 @@ self.ReferenceChannelResistance:float = 20 #In kOhms
 #### Miscellaneous
 1. `MemoryBufferSize` - The number of scans stored in `readoutDictionary`. After `MemoryBufferSize` scans, `readoutDictionary` is cleared.
 
-### Starting a Stream Session
+### Calibration
+Obtain the calibration equation for the board by calling <LINK THING HERE>. In the `ConvertResistance()` function of `ColdThermometryReadout`, set the calibration equation obtained as the output. A sample is given below:
+
 ~~~python
-readoutObj = ColdThermometryReadout('56')
+res = 58.69299438396007 * voltage + 0.12049023712211593
+return res
+~~~
+
+*This should be a linear equation relating a voltage to a resistance.*
+
+### Starting a Stream Session
+A stream session can be started by creating an instance of the `ColdThermometryReadout` class and calling `Stream()`. **Note: The channels to be read is required when creating an instance of `ColdThermometryReadout`.**
+
+~~~python
+readoutObj = ColdThermometryReadout('40,41,42,43') #Use 'all' for all channels.
 readoutObj.Stream()
 ~~~
-### Calibration
+
