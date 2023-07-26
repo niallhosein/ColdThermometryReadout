@@ -1,4 +1,5 @@
 # Cold Thermometry Readout
+This documentation outlines the general steps and important information required to interface with the cold thermometry readout board via software.
 
 ## Setup
 
@@ -77,7 +78,7 @@ self.ReferenceChannelResistance:float = 20 #In kOhms
 1. `MemoryBufferSize` - The number of scans stored in `readoutDictionary`. After `MemoryBufferSize` scans, `readoutDictionary` is cleared.
 
 #### Calibration
-Obtain the calibration equation for the board by calling <LINK THING HERE>. In the `ConvertResistance()` function of `ColdThermometryReadout`, set the calibration equation obtained as the output. A sample is given below:
+Obtain the calibration equation for the board by calling `CalibrateBoard()` of the `Testing Class`. In the `ConvertResistance()` function of `ColdThermometryReadout`, set the calibration equation obtained as the output. A sample is given below:
 
 ~~~python
 res = 58.69299438396007 * voltage + 0.12049023712211593
