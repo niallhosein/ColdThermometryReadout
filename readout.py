@@ -96,7 +96,7 @@ class ColdThermometryReadout():
             The size in terms of number of samples to store in `readoutDictionary`. Eg. 3600 stores data for 3600 samples or for the past hour at a sample rate of 1Hz.
         """
        
-       #Configuable Settings
+       #Configurable Settings
        self.sample_rate:int = 1600
        self.scan_amount:int = 10000
        self.upper_stage_config:dict = {"UL":100,"LL":1.2,"Bias":5, "CalibratedBias":5}
