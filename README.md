@@ -144,7 +144,7 @@ The `GraphData` function of the `Testing` class allows for quick graphing of dat
 
 **NOTE: `LoadData()` must be called first before using this function.**
 
-*Alternatively, and for more flexibility, the svaed data can be loaded, and the raw data required can be obtained from the `LoadedDataDictionaryAveraged` and `LoadedDataDictionaryBinned` dictionaries.*
+*Alternatively, and for more flexibility, the saved data can be loaded, and the raw data required can be obtained from the `LoadedDataDictionaryAveraged` and `LoadedDataDictionaryBinned` dictionaries.*
 
 ## Usage
 ### Starting a Streaming Session
