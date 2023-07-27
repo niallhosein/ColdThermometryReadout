@@ -238,6 +238,7 @@ class ColdThermometryReadout():
                     path = os.path.realpath(mappingdictionary[channel_name]["Path"])
                 else: 
                     path = os.path.realpath(mappingdictionary["BACKUP"]["Path"])
+                    pass
              
                 with open(path) as calibrationfile:
                     data = np.array([])
@@ -1142,7 +1143,7 @@ class Testing():
         plt.show()
 
 #Stream Test
-readoutObj = ColdThermometryReadout('56')
+readoutObj = ColdThermometryReadout('all')
 readoutObj.Stream()
 
 #Load Data

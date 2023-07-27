@@ -1,4 +1,5 @@
 Channel Name,Path
+BACKUP,./ResistorCalibrations/AIN56_mean.tbl
 AIN48,./ResistorCalibrations/AIN56_mean.tbl
 AIN49,./ResistorCalibrations/AIN56_mean.tbl
 AIN50,./ResistorCalibrations/AIN56_mean.tbl
