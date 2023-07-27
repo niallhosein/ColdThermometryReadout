@@ -304,11 +304,8 @@ class ColdThermometryReadout():
             
             ljme = sys.exc_info()[1]
             if ljme.errorCode == 1314: #No Devices found
-                logging.WARNING("LabJack Error 1314 - No Devices Found.")
-
                 print("\n Unable to find labjack device. Retrying in 5s.")
                 time.sleep(5)
-
                 self.OpenConnection()
     
     def SetChannelsToRead(self, channels_to_read:str):
@@ -345,8 +342,6 @@ class ColdThermometryReadout():
 
             self.scan_list = ljm.namesToAddresses(len(channel_names), channel_names)[0]
             self.channel_names = channel_names
-
-            logging.info("Readout Channels Set: " + channels_to_read)
         
         except Exception:
             print(sys.exc_info()[1])
@@ -448,19 +443,22 @@ class ColdThermometryReadout():
 
         def CallConfigureStream(self):
             """
-            
+            This function calls `ConfigureStream()`. 
             """
 
             ConfigureStream(self)
 
         def ConfigureStream(self):
             """
-            
+            This function configures the settings for the stream.
             """
             try:
+                
                 ljm.eStreamStart(self.handle, int(self.sample_rate), len(self.channel_names), self.scan_list, self.sample_rate)
                 Scan(self)
+            
             except ljm.LJMError:
+                
                 ljme = sys.exc_info()[1]
                 errorcount += 1
                 print("\nApplication encountered an error.\nError Code: {0}; {1}".format(ljme.errorCode, ljme.errorString))
@@ -469,8 +467,9 @@ class ColdThermometryReadout():
         
         def OutputMessage(self):
             """
-            
+            This function outputs the summary of the stream.
             """
+
             nonlocal startTime
             endTime = datetime.now()
             processtime = endTime - startTime
@@ -479,10 +478,11 @@ class ColdThermometryReadout():
 
         def Scan(self):
             """
-            
+            This function carries out the individual scans.
             """
             nonlocal total_scans
             nonlocal errorcount
+            
             try: 
                     
                     streamtimeutc = time.time()
@@ -506,13 +506,13 @@ class ColdThermometryReadout():
                     self.ClearMemoryBuffer()
 
             except ljm.LJMError:
+                   
                     ljme = sys.exc_info()[1]
                     errorcount += 1
                     print("\nApplication encountered an error.\nError Code: {0}; {1}".format(ljme.errorCode, ljme.errorString))
                     time.sleep(1)
                     self.OpenConnection(reconnect=True)
                     CallConfigureStream(self)
-                    pass
 
         CallConfigureStream(self)
 
@@ -1144,6 +1144,6 @@ readoutObj = ColdThermometryReadout('56')
 readoutObj.Stream()
 
 #Load Data
-# testing = Testing()
-# testing.LoadData(["AIN56"], './Board Test/')
-# testing.GraphData(["AIN56"], "as")
+testing = Testing()
+testing.LoadData(["AIN56"], './Board Test/')
+testing.GraphData(["AIN56"], "as")
