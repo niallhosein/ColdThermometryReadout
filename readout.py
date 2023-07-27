@@ -6,9 +6,8 @@ S. Dicker, N. Hosein, A. Manduca
 University of Pennsylvania
 """
 
-import os, sys, time, logging
+import os, sys, time, logging, matplotlib
 import numpy as np
-import matplotlib 
 import matplotlib.pyplot as plt
 import pandas as pd
 from numpy.typing import ArrayLike
@@ -235,11 +234,15 @@ class ColdThermometryReadout():
         
         for channel_name in self.channel_names: #only loads the channels which are in use.
             try:
-                path = os.path.realpath(mappingdictionary[channel_name]["Path"])
+                if channel_name in mappingdictionary:
+                    path = os.path.realpath(mappingdictionary[channel_name]["Path"])
+                else: 
+                    path = os.path.realpath(mappingdictionary["BACKUP"]["Path"])
              
                 with open(path) as calibrationfile:
                     data = np.array([])
                     for line in calibrationfile:
+                        line = line.replace("D", "e")
                         data = np.append(data, np.array(line.split(), dtype=float)) #This generates an array of size (n*4)
 
                     data = np.resize(data, (int(len(data)/4),4))
