@@ -523,7 +523,6 @@ class ColdThermometryReadout():
             
         OutputMessage(self)
     
-
     def ConvertTemperature(self, resistance:ArrayLike, channel_name:str, unit:str="mK"):
         """
         Converts a given resistance value to a temperature value based on the resistance-temperature calibration of the given resistor.
