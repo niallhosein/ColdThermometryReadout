@@ -44,8 +44,8 @@ class ColdThermometryReadout():
         scan_list : ArrayLike
             List of Modbus addresses to collect samples from, per scan(LabJack attribute).
 
-        scan_amount : int
-            The number of streams to be taken. Set to 'inf' for an infintie number of readings.
+        scan_amount : float
+            The number of streams to be taken. Set to 'inf' for an infinite number of readings.
 
         channel_names : list
             List of channels being read.
