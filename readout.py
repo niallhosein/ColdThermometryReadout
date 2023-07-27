@@ -45,7 +45,7 @@ class ColdThermometryReadout():
             List of Modbus addresses to collect samples from, per scan(LabJack attribute).
 
         scan_amount : int
-            The number of streams to be taken. Set to -1 for an infintie number of readings.
+            The number of streams to be taken. Set to 'inf' for an infintie number of readings.
 
         channel_names : list
             List of channels being read.
@@ -98,7 +98,7 @@ class ColdThermometryReadout():
        
        #Configurable Settings
        self.sample_rate:int = 1600
-       self.scan_amount:int = 3600
+       self.scan_amount:float = 3600
        self.upper_stage_config:dict = {"UL":100,"LL":1.2,"Bias":5, "CalibratedBias":5}
        self.middle_stage_config:dict = {"UL":1.2,"LL":0.15,"Bias":0.2, "CalibratedBias":0.2}
        self.lower_stage_config:dict = {"UL":0.15,"LL":0,"Bias":0.02, "CalibratedBias":0.02}
@@ -516,7 +516,7 @@ class ColdThermometryReadout():
 
         CallConfigureStream(self)
 
-        while self.stream_num < self.scan_amount:
+        while self.stream_num < float(self.scan_amount):
             self.stream_num += 1
             x = self.stream_num
             Scan(self)
