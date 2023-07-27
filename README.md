@@ -10,7 +10,7 @@ The calibration information should be stored in a text file where the respective
 | :---------: | :---------: |:---------: | :---------:|
 |... | ... | ... | ... |
 
-An excerpt of a `mean.tbl` file is shown here:
+An excerpt of a `mean.tbl` file is shown below:
 
 ```
   0.050   6.37650933339D+04  -2.88865353564D+06  -2.26507434131D+00
