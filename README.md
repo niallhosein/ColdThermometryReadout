@@ -50,7 +50,7 @@ self.overrideBias:float = 3 #In volts
 self.BiasOutputPort:str = "DAC0"
 ~~~
 
-There are three stage configurations and their settings are controlled by `upper_stage_config`, `middle_stage_config`, and `lower_stage_config`. Let's consider the middle stage configuration:
+There are three stage configurations, and their settings are controlled by `upper_stage_config`, `middle_stage_config`, and `lower_stage_config`. Let's consider the middle stage configuration:
     
 ~~~python
 middle_stage_config:dict = {"UL":1.2,"LL":0.15,"Bias":0.2, "CalibratedBias":0.3}
@@ -58,7 +58,7 @@ middle_stage_config:dict = {"UL":1.2,"LL":0.15,"Bias":0.2, "CalibratedBias":0.3}
 #UL - Upper limit temperature of stage in K
 #LL - Lower limit temperature of stage in K
 #Bias - The output bias required in volts.
-#CalibratedBias - The required DC voltage in volts required to achive the required bias.
+#CalibratedBias - The required DC voltage in volts required to achieve the required bias.
 ~~~
 
 In the above example, the middle stage configuration operates between temperatures of 0.15K and 1.2K, needs to output a bias of 0.2V to best operate the resistors, and requires a DC output of 0.3V from the specified DAC port to achieve the bias of 0.2V.
