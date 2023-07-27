@@ -94,17 +94,11 @@ class ColdThermometryReadout():
 
         MemoryBufferSize : int
             The size in terms of number of samples to store in `readoutDictionary`. Eg. 3600 stores data for 3600 samples or for the past hour at a sample rate of 1Hz.
-        
-        streamStartTime : datetime
-            Stores the start time of the stream
-
-        self.stremEndTime : datetime
-            Stores the end time of the stream.
         """
        
        #Configurable Settings
        self.sample_rate:int = 1600
-       self.scan_amount:int = 10000
+       self.scan_amount:int = 3600
        self.upper_stage_config:dict = {"UL":100,"LL":1.2,"Bias":5, "CalibratedBias":5}
        self.middle_stage_config:dict = {"UL":1.2,"LL":0.15,"Bias":0.2, "CalibratedBias":0.2}
        self.lower_stage_config:dict = {"UL":0.15,"LL":0,"Bias":0.02, "CalibratedBias":0.02}
@@ -126,8 +120,6 @@ class ColdThermometryReadout():
        self.stream_num:int = 1
        self.ResistorCalibrationDictionary = {}
        self.biasMode:int = 10 #Arbitrarily Set
-       self.streamStartTime:datetime = None
-       self.stremEndTime:datetime = None
        
        self.OpenConnection()
        self.SetupLabJack()
@@ -408,7 +400,7 @@ class ColdThermometryReadout():
             
             ljme = sys.exc_info()[1]
             if ljme.errorCode == 2605: #Stream is Active.
-                print("\n Stream is active. Stopping stream.")
+                print("\nStream is active. Stopping stream.")
                 ljm.eStreamStop(self.handle)
                 print("Stream stopped. Restarting Method.")
                 self.SetupLabJack(setup_names, setup_values)
@@ -452,14 +444,14 @@ class ColdThermometryReadout():
         total_scans = 0
         errorcount = 0
 
-        self.starttime = datetime.now()
+        startTime = datetime.now()
 
         def CallConfigureStream(self):
             """
             
             """
 
-            ConfigureStream()
+            ConfigureStream(self)
 
         def ConfigureStream(self):
             """
@@ -467,20 +459,21 @@ class ColdThermometryReadout():
             """
             try:
                 ljm.eStreamStart(self.handle, int(self.sample_rate), len(self.channel_names), self.scan_list, self.sample_rate)
-                StreamScan()
+                Scan(self)
             except ljm.LJMError:
                 ljme = sys.exc_info()[1]
-                print("Application encountered an error.\nError Code: {0}; {1}".format(ljme.errorCode, ljme.errorString))
-                ljm.eStreamStop(self.handle)
-                return False
+                errorcount += 1
+                print("\nApplication encountered an error.\nError Code: {0}; {1}".format(ljme.errorCode, ljme.errorString))
+                self.OpenConnection(reconnect=True)
+                CallConfigureStream(self)
         
         def OutputMessage(self):
             """
             
             """
-
-            self.endtime = datetime.now()
-            processtime = self.endtime - self.starttime
+            nonlocal startTime
+            endTime = datetime.now()
+            processtime = endTime - startTime
             
             print("Streaming Complete. \nTotal Scans: {2}; Errors Encountered: {0}; Stream Time: {1}".format(str(errorcount), str(processtime), str(total_scans)))
 
@@ -488,7 +481,8 @@ class ColdThermometryReadout():
             """
             
             """
-
+            nonlocal total_scans
+            nonlocal errorcount
             try: 
                     
                     streamtimeutc = time.time()
@@ -512,30 +506,22 @@ class ColdThermometryReadout():
                     self.ClearMemoryBuffer()
 
             except ljm.LJMError:
-                    errorcount += 1
                     ljme = sys.exc_info()[1]
-
-                    print("Application encountered an error.\nError Code: {0}; {1}".format(ljme.errorCode, ljme.errorString))
+                    errorcount += 1
+                    print("\nApplication encountered an error.\nError Code: {0}; {1}".format(ljme.errorCode, ljme.errorString))
                     time.sleep(1)
                     self.OpenConnection(reconnect=True)
-                    CallConfigureStream()
+                    CallConfigureStream(self)
                     pass
 
+        CallConfigureStream(self)
 
-        def StreamScan(self):
-            """
+        while self.stream_num < self.scan_amount:
+            self.stream_num += 1
+            x = self.stream_num
+            Scan(self)
             
-            """
-            nonlocal total_scans
-            nonlocal errorcount
-
-            CallConfigureStream()
-
-            while self.stream_num <= self.scan_amount:
-                Scan()
-                self.stream_num += 1
-            
-            OutputMessage()
+        OutputMessage(self)
     
 
     def ConvertTemperature(self, resistance:ArrayLike, channel_name:str, unit:str="mK"):
@@ -1051,7 +1037,7 @@ class Testing():
 
         self.saveCounter += 1
         split_time_array = self.CalculateSplitTime()
-        
+     
         if not os.path.isdir(os.path.realpath(self.savePath)):
             os.makedirs(self.savePath)
 
