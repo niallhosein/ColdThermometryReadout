@@ -39,7 +39,7 @@ An example calibration mapping is shown below:
 All settings for readout class can be found in the `__init__()` function of the readout class under the heading 'Configurable Settings'. Set the values as desired. A description of each value is given below:
 
 #### Scan Setup
-The scan setup is controlled by `sample_rate` and `scan_amount`. `sample_rate` is the number of samples taken by the LabJack per scan per channel. By default it is set to `1600` - a sample frequency of 1600Hz per channel. `scan_amount` is the number of streams to be taken. Set to `-1` for an infinite number of readings.
+The scan setup is controlled by `sample_rate` and `scan_amount`. `sample_rate` is the number of samples taken by the LabJack per scan per channel. By default it is set to `1600` - a sample frequency of 1600Hz per channel. `scan_amount` is the number of streams to be taken. Set to `inf` for an infinite number of readings.
 
 #### Bias Switching and Stage Configurations
 The bias switching functionality is controlled `BiasSwitchAveragingInterval`, `overrideBias`, and `BiasOutputPort`. Sample values are given below:
