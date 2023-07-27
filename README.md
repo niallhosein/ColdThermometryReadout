@@ -10,7 +10,7 @@ The calibration information should be stored in a text file where the respective
 | :---------: | :---------: |:---------: | :---------:|
 |... | ... | ... | ... |
 
-An excerpt of a `mean.tbl` file is shown here:
+An excerpt of a `mean.tbl` file is shown below:
 
 ```
   0.050   6.37650933339D+04  -2.88865353564D+06  -2.26507434131D+00
@@ -39,7 +39,7 @@ An example calibration mapping is shown below:
 All settings for readout class can be found in the `__init__()` function of the readout class under the heading 'Configurable Settings'. Set the values as desired. A description of each value is given below:
 
 #### Scan Setup
-The scan setup is controlled by `sample_rate` and `scan_amount`. `sample_rate` is the number of samples taken by the LabJack per scan per channel. By default it is set to `1600` - a sample frequency of 1600Hz per channel. `scan_amount` is the number of streams to be taken. Set to `-1` for an infintie number of readings.
+The scan setup is controlled by `sample_rate` and `scan_amount`. `sample_rate` is the number of samples taken by the LabJack per scan per channel. By default it is set to `1600` - a sample frequency of 1600Hz per channel. `scan_amount` is the number of streams to be taken. Set to `inf` for an infinite number of readings.
 
 #### Bias Switching and Stage Configurations
 The bias switching functionality is controlled `BiasSwitchAveragingInterval`, `overrideBias`, and `BiasOutputPort`. Sample values are given below:
@@ -50,7 +50,7 @@ self.overrideBias:float = 3 #In volts
 self.BiasOutputPort:str = "DAC0"
 ~~~
 
-There are three stage configurations and there settings are controlled by `upper_stage_config`, `middle_stage_config`, and `lower_stage_config`. Let's consider the middle stage configuration:
+There are three stage configurations, and their settings are controlled by `upper_stage_config`, `middle_stage_config`, and `lower_stage_config`. Let's consider the middle stage configuration:
     
 ~~~python
 middle_stage_config:dict = {"UL":1.2,"LL":0.15,"Bias":0.2, "CalibratedBias":0.3}
@@ -58,7 +58,7 @@ middle_stage_config:dict = {"UL":1.2,"LL":0.15,"Bias":0.2, "CalibratedBias":0.3}
 #UL - Upper limit temperature of stage in K
 #LL - Lower limit temperature of stage in K
 #Bias - The output bias required in volts.
-#CalibratedBias - The required DC voltage in volts required to achive the required bias.
+#CalibratedBias - The required DC voltage in volts required to achieve the required bias.
 ~~~
 
 In the above example, the middle stage configuration operates between temperatures of 0.15K and 1.2K, needs to output a bias of 0.2V to best operate the resistors, and requires a DC output of 0.3V from the specified DAC port to achieve the bias of 0.2V.
@@ -144,7 +144,7 @@ The `GraphData` function of the `Testing` class allows for quick graphing of dat
 
 **NOTE: `LoadData()` must be called first before using this function.**
 
-*Alternatively, and for more flexibility, the svaed data can be loaded, and the raw data required can be obtained from the `LoadedDataDictionaryAveraged` and `LoadedDataDictionaryBinned` dictionaries.*
+*Alternatively, and for more flexibility, the saved data can be loaded, and the raw data required can be obtained from the `LoadedDataDictionaryAveraged` and `LoadedDataDictionaryBinned` dictionaries.*
 
 ## Usage
 ### Starting a Streaming Session
