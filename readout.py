@@ -234,7 +234,10 @@ class ColdThermometryReadout():
         
         for channel_name in self.channel_names: #only loads the channels which are in use.
             try:
-                path = os.path.realpath(mappingdictionary[channel_name]["Path"])
+                if channel_name in mappingdictionary:
+                    path = os.path.realpath(mappingdictionary[channel_name]["Path"])
+                else: 
+                    path = os.path.realpath(mappingdictionary["BACKUP"]["Path"])
              
                 with open(path) as calibrationfile:
                     data = np.array([])
