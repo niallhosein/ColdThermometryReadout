@@ -16,7 +16,6 @@ from datetime import datetime
 from scipy import stats
 
 matplotlib.use("tkagg")
-logging.basicConfig(filename='coldtherm.log', level=logging.INFO, format='%(asctime)s - %(levelname)s - %(message)s', filemode='a')
 
 class ColdThermometryReadout():
     def __init__(self, channels_to_read:str):
@@ -439,15 +438,12 @@ class ColdThermometryReadout():
             
             ljme = sys.exc_info()[1]
             if ljme.errorCode == 2605: #Stream is Active.
-                print("\nStream is active. Stopping stream.")
-                ljm.eStreamStop(self.handle)
-                print("Stream stopped. Restarting Method.")
+                print("\nStream is active. Stopping stream and restarting method.")
                 self.SetupLabJack(setup_names, setup_values)
-
 
     def ConvertResistance(self, voltage:ArrayLike, channel_name:str):
         """
-        Converts a given array of voltages into rsistances using determined calibration equations given in `channelVoltageresistorCalibrationDictionary`. See `CalibrateBoard()`of the Testing class for determining the 
+        Converts a given array of voltages into rsistances using determined calibration equations given in `channelVoltageresistorCalibrationDictionary`. See `CalibrateChannel()`of the Testing class for determining the 
         calibration equation of a given channel.
 
         Parameters
@@ -464,8 +460,13 @@ class ColdThermometryReadout():
             ArrayLike object containing the resistances of the thermometer in kOhms.
         """
 
-        grad = self.channelVoltageresistorCalibrationDictionary[channel_name]["Gradient"]
-        intercept = self.channelVoltageresistorCalibrationDictionary[channel_name]["Intercept"]
+        if channel_name in self.channelVoltageresistorCalibrationDictionary:
+            grad = self.channelVoltageresistorCalibrationDictionary[channel_name]["Gradient"]
+            intercept = self.channelVoltageresistorCalibrationDictionary[channel_name]["Intercept"]
+        else:
+            grad = self.channelVoltageresistorCalibrationDictionary["DEFAULT"]["Gradient"]
+            intercept = self.channelVoltageresistorCalibrationDictionary["DEFAULT"]["Intercept"]
+
         return grad*voltage + intercept
 
     def Stream(self):
@@ -499,6 +500,9 @@ class ColdThermometryReadout():
             """
             This function configures the settings for the stream.
             """
+
+            nonlocal errorcount
+
             try:
                 
                 ljm.eStreamStart(self.handle, int(self.sample_rate), len(self.channel_names), self.scan_list, self.sample_rate)
@@ -509,6 +513,7 @@ class ColdThermometryReadout():
                 ljme = sys.exc_info()[1]
                 errorcount += 1
                 print("\nApplication encountered an error.\nError Code: {0}; {1}".format(ljme.errorCode, ljme.errorString))
+                time.sleep(3)
                 self.OpenConnection(reconnect=True)
                 CallConfigureStream(self)
         
@@ -540,7 +545,7 @@ class ColdThermometryReadout():
                     for k in range(len(self.channel_names)):
                                 
                         v = np.array(v_measured[k::len(self.channel_names)])
-                        res = np.array(self.ConvertResistance(v))
+                        res = np.array(self.ConvertResistance(v, self.channel_names[k]))
                         temp = np.array(self.ConvertTemperature((res), self.channel_names[k]))
 
                         self.readoutDictionary[self.channel_names[k]]["V [V]"].append(v)
@@ -557,7 +562,7 @@ class ColdThermometryReadout():
                     ljme = sys.exc_info()[1]
                     errorcount += 1
                     print("\nApplication encountered an error.\nError Code: {0}; {1}".format(ljme.errorCode, ljme.errorString))
-                    time.sleep(1)
+                    time.sleep(3)
                     self.OpenConnection(reconnect=True)
                     CallConfigureStream(self)
 
@@ -758,17 +763,17 @@ class Testing():
             self.avg_dictionary[n] = {"V [V]":[],"R [kohms]":[],"Temp [mK]":[],"Time":[]}
             self.bin_dictionary[n] = {"V [V]":[],"R [kohms]":[],"Temp [mK]":[],"Time":[]}
 
-    def CalibrateBoard(self, channel:str, streamAmount:int):
+    def CalibrateChannel(self, channel:str, streamAmount:int):
         """
-        Interface to calibrate the board and obtain a relationship between voltage(V) and resistance(kOhms).
+        Interface to calibrate the a given channel and obtain a relationship between voltage(V) and resistance(kOhms).
 
         Parameters
         ----------
         channel : str
-            The name of the channel from which the voltage samples will be taken. Eg: "AIN56"
+            The name of the channel to calibrate. Voltage samples will be drawn from here. Eg: "AIN56"
 
         streamAmount : int
-            The number of streams for a given resistance. 
+            The number of scans for a given resistance for the specified channel.
 
         Returns
         -------
@@ -778,11 +783,12 @@ class Testing():
         self.readout.SetChannelsToRead(str(channel))
 
         print("\n ### Calibration ###")
-        print("\nFollow the following instructions to calibrate the board.")
 
-        print("You will be repeatedly prompted to enter resistances. These are the input resistances to the set channel. The application will then stream the channel for the specified number of samples and aggregate all data to determine the calibration for the board.")
 
-        print("\nNOTE: Enter all resistances in kOhms. Press 'c' at any time to stop and complete the complete the calibration.")
+
+        print("\nFollow the following instructions to calibrate channel {0}." 
+              "\nYou will be repeatedly prompted to enter resistances. These are the input resistances to channel {0}. The application will then stream channel {0} for {1} samples and aggregate all data to determine the calibration for channel {0}. "
+              "\n\nNOTE: Enter all resistances in kOhms. Press 'c' at any time to stop and complete the complete the calibration.".format(channel, str(streamAmount)))
 
         inputResistances = []
         outputVoltageAverage = []
@@ -809,10 +815,10 @@ class Testing():
 
         slope, intercept, r, p, se = stats.linregress(outputVoltageAverage, inputResistances)
 
-        print("\nCalibration Function: res = {0}*voltage + {1}".format(slope, intercept))
+        print("\nCalibration Function for Channel {2}: res = {0}*voltage + {1}".format(slope, intercept, channel))
         print("r: {0}".format(r))
 
-        print("\nEnter the above equation into the calibraton function of the readout class.")
+        print("\nEnter the above equation into the voltage-resistance calibraton file for channel {0}.".format(channel))
 
         print("\n### Calibration Complete ###")
 
@@ -1187,9 +1193,10 @@ class Testing():
 
 #Stream Test
 readoutObj = ColdThermometryReadout('all')
-readoutObj.Stream()
+# readoutObj.Stream()
 
 #Load Data
-testing = Testing()
-testing.LoadData(["AIN56"], './Board Test/')
-testing.GraphData(["AIN56"], "as")
+testing = Testing(readoutObj)
+testing.CalibrateChannel("56", 20)
+# testing.LoadData(["AIN56"], './Board Test/')
+# testing.GraphData(["AIN56"], "as")
