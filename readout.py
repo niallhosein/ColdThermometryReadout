@@ -16,7 +16,6 @@ from datetime import datetime
 from scipy import stats
 
 matplotlib.use("tkagg")
-logging.basicConfig(filename='coldtherm.log', level=logging.INFO, format='%(asctime)s - %(levelname)s - %(message)s', filemode='a')
 
 class ColdThermometryReadout():
     def __init__(self, channels_to_read:str):
@@ -64,50 +63,54 @@ class ColdThermometryReadout():
         lower_stage_config : dict
             Dictionary storing the lower stage bias configuration of the board.
             
-        ResistorCalibrationDictionary : dict
+        resistorCalibrationDictionary : dict
             Dictionary containing the calibration curve data for each resistor/channel.
             
         biasMode : int
-            The DC signal in volts to be outputted from the output port set by `BiasOutputPort`.
+            The DC signal in volts to be outputted from the output port set by `biasOutputPort`.
             0: LS; 1: MS; 2: US; -1: Override
 
             Set to an abitrary integer that is not one of the above to set the system in automatic bias switching mode.
 
-        BiasSwitchAveragingInterval : int
+        biasSwitchAveragingInterval : int
             The interval over which the board averages to determine the current temperature stage.
 
         overrideBias:float
             The manual voltage bias to be supplied to the signal generator chip if the automatic switching functionailty is no longer wanted.
 
-        BiasOutputPort:str, default = 'DAC0'
+        biasOutputPort:str, default = 'DAC0'
             Name of the DAC port from which the DC voltage to generate the signal is sent.
         
-        ResistorCalibrationMappingPath : str
+        resistorCalibrationMappingPath : str
             String specifying the location of the csv file which contains the mapping to the calibration file of each resistor.
         
-        ReferenceChannel : str
+        referenceChannel : str
             The name of the drift reference channel. Eg. 'AIN84'
 
-        ReferenceChannelResistance : float
+        referenceChannelResistance : float
             The value of the fixed resistances attached to the reference channel in kOhms.
 
-        MemoryBufferSize : int
+        memoryBufferSize : int
             The size in terms of number of samples to store in `readoutDictionary`. Eg. 3600 stores data for 3600 samples or for the past hour at a sample rate of 1Hz.
+        
+        channelVoltageResistanceCalibrationFilePath : str
+            Stores the path to the `.csv` file containing the voltage-resistance calibration equation for each channel.
         """
        
        #Configurable Settings
        self.sample_rate:int = 1600
-       self.scan_amount:float = 3600
+       self.scan_amount:float = float('inf')
        self.upper_stage_config:dict = {"UL":100,"LL":1.2,"Bias":5, "CalibratedBias":5}
        self.middle_stage_config:dict = {"UL":1.2,"LL":0.15,"Bias":0.2, "CalibratedBias":0.2}
        self.lower_stage_config:dict = {"UL":0.15,"LL":0,"Bias":0.02, "CalibratedBias":0.02}
-       self.BiasSwitchAveragingInterval:int = 30
+       self.biasSwitchAveragingInterval:int = 30
        self.overrideBias:float = 3
-       self.BiasOutputPort:str = "DAC0"
-       self.ResistorCalibrationMappingPath:str = "./resistor_calibration_mapping.csv"
-       self.ReferenceChannel:str = "AIN84"
-       self.ReferenceChannelResistance:float = 20
-       self.MemoryBufferSize:int = 3600
+       self.biasOutputPort:str = "DAC0"
+       self.resistorCalibrationMappingPath:str = "./resistor_calibration_mapping.csv"
+       self.channelVoltageResistanceCalibrationFilePath:str = "./channel_voltage_resistance_calibration.csv"
+       self.referenceChannel:str = "AIN84"
+       self.referenceChannelResistance:float = 20
+       self.memoryBufferSize:int = 3600
     
        #Non-Configurable Settings/Variables
        self.handle = None
@@ -117,16 +120,18 @@ class ColdThermometryReadout():
        self.channel_names:list = []
        self.readoutDictionary:dict = {}
        self.stream_num:int = 1
-       self.ResistorCalibrationDictionary = {}
+       self.resistorCalibrationDictionary = {}
+       self.channelVoltageresistorCalibrationDictionary = {}
        self.biasMode:int = 10 #Arbitrarily Set
        
        self.OpenConnection()
        self.SetupLabJack()
        self.SetChannelsToRead(channels_to_read)
        self.GenerateDictionaries()
-       self.LoadResistorCalibration(self.ResistorCalibrationMappingPath)
+       self.LoadResistorCalibration(self.resistorCalibrationMappingPath)
+       self.LoadVoltageResistorCalibration(self.channelVoltageResistanceCalibrationFilePath)
 
-       self.TestingModule = Testing(self)
+       self.testingModule = Testing(self)
 
     def ClearMemoryBuffer(self):
         """
@@ -142,7 +147,7 @@ class ColdThermometryReadout():
         None
         """
 
-        if self.stream_num % self.MemoryBufferSize == 0:
+        if self.stream_num % self.memoryBufferSize == 0:
             self.readoutDictionary.clear()
             self.GenerateDictionaries()
 
@@ -153,19 +158,19 @@ class ColdThermometryReadout():
         Parameters
         ----------
         bias : float
-            The DC signal in volts to be outputted from the output port set by `BiasOutputPort`.
+            The DC signal in volts to be outputted from the output port set by `biasOutputPort`.
 
         Returns
         -------
         None
         """
 
-        ljm.eWriteName(self.handle, self.BiasOutputPort, bias)
+        ljm.eWriteName(self.handle, self.biasOutputPort, bias)
 
     def CheckBiasSwitch(self, ovrr:bool = False):
         """
         Checks whether the bias signal needs to be switched. By default the the bias signal is set automatically by the values set in the dictionaries `lower_stage_config`, `middle_stage_config`, and `upper_stage_config`.
-        The interval over which the temperature values are averaged to look for stage changes are given by `BiasSwitchAveragingInterval`.
+        The interval over which the temperature values are averaged to look for stage changes are given by `biasSwitchAveragingInterval`.
 
         Parameters
         ----------
@@ -186,7 +191,7 @@ class ColdThermometryReadout():
         lowestChannelTemp = 1000
         for channel in self.channel_names:
             
-            channeltemp = np.average(self.readoutDictionary[channel]["Temp [mK]"][-self.BiasSwitchAveragingInterval:])/1000 #Temp in K
+            channeltemp = np.average(self.readoutDictionary[channel]["Temp [mK]"][-self.biasSwitchAveragingInterval:])/1000 #Temp in K
             if channeltemp < lowestChannelTemp:
                 lowestChannelTemp = channeltemp
 
@@ -238,7 +243,6 @@ class ColdThermometryReadout():
                     path = os.path.realpath(mappingdictionary[channel_name]["Path"])
                 else: 
                     path = os.path.realpath(mappingdictionary["BACKUP"]["Path"])
-                    pass
              
                 with open(path) as calibrationfile:
                     data = np.array([])
@@ -252,12 +256,47 @@ class ColdThermometryReadout():
                     drdt = data[:,2]
                     sd = data[:,3]
                    
-                    self.ResistorCalibrationDictionary[channel_name] = {"Temp [K]":temp[::-1], "log(R [Ohms])":np.log10(res[::-1]), "drdt": drdt[::-1], "sd": sd[::-1]} #reverses array for np.interp
+                    self.resistorCalibrationDictionary[channel_name] = {"Temp [K]":temp[::-1], "log(R [Ohms])":np.log10(res[::-1]), "drdt": drdt[::-1], "sd": sd[::-1]} #reverses array for np.interp
 
             except Exception:
                 error = sys.exc_info()[1]
-                print("An error occured while loading the calibration for channel: " + channel_name)        
-    
+                print("An error occured while loading the calibration for channel: " + channel_name)      
+
+    def LoadVoltageResistorCalibration(self, path:str="./channel_voltage_resistance_calibration.csv"):
+        """
+        Loads the voltage-resistance calibration for each channe from the equation file `channel_voltage_resistance_calibration.csv`.
+
+        Parameters
+        ----------
+        path : str, default = "./channel_voltage_resistance_calibration.csv"
+            The path to the file `channel_voltage_resistance_calibration.csv` which contains the voltage-resistance calibration equations for each channel.
+
+        Returns
+        -------
+        None
+        """
+
+        try:  
+            calibration_eq_file = os.path.realpath(path)
+            df = pd.read_csv(calibration_eq_file, header=0,names=["Channel Name", "Calibration Equation"])
+            channel_names = df["Channel Name"].values
+            calibration_eqs = df["Calibration Equation"].values
+        except Exception:
+            error = sys.exc_info()[1]
+            print("Could not load channel voltage-resistor calibration file. Check file path.")
+            quit()
+        
+        #Loads equations into a dictionary
+        try:
+            for i in range(len(channel_names)):
+                gradient = float(calibration_eqs[i].split("*voltage")[0])
+                intercept = float(calibration_eqs[i].split("*voltage")[1])
+                self.channelVoltageresistorCalibrationDictionary[channel_names[i]]  = {"Equation":calibration_eqs[i], "Gradient": gradient, "Intercept": intercept}    
+        except Exception:
+            error = sys.exc_info()[1]
+            print("Could not parse equation. Check that calibration equations are in the correct format.")
+            quit()
+
     def GenerateDictionaries(self):
         """
         Regenerates the `readoutDictionary` when the buffer is filled. Buffer size is set by `readoutBufferSize`.
@@ -399,21 +438,22 @@ class ColdThermometryReadout():
             
             ljme = sys.exc_info()[1]
             if ljme.errorCode == 2605: #Stream is Active.
-                print("\nStream is active. Stopping stream.")
+                print("\nStream is active. Stopping stream and restarting method.")
                 ljm.eStreamStop(self.handle)
-                print("Stream stopped. Restarting Method.")
                 self.SetupLabJack(setup_names, setup_values)
 
-
-    def ConvertResistance(self, voltage:ArrayLike):
+    def ConvertResistance(self, voltage:ArrayLike, channel_name:str):
         """
-        Converts a given array of voltages into rsistances using a pre-determined calibration equation. See `CalibrateBoard()`of the Testing class for determining the 
-        calibration equation.
+        Converts a given array of voltages into rsistances using determined calibration equations given in `channelVoltageresistorCalibrationDictionary`. See `CalibrateChannel()`of the Testing class for determining the 
+        calibration equation of a given channel.
 
         Parameters
         ----------
         voltage : ArrayLike
             ArrayLike object containing the voltage output of the board in volts.
+
+        channel_name : str
+            The name of the channel from which the voltage values were obtained.
 
         Returns
         -------
@@ -421,9 +461,14 @@ class ColdThermometryReadout():
             ArrayLike object containing the resistances of the thermometer in kOhms.
         """
 
-        res = 58.69299438396007*voltage + 0.12049023712211593
+        if channel_name in self.channelVoltageresistorCalibrationDictionary:
+            grad = self.channelVoltageresistorCalibrationDictionary[channel_name]["Gradient"]
+            intercept = self.channelVoltageresistorCalibrationDictionary[channel_name]["Intercept"]
+        else:
+            grad = self.channelVoltageresistorCalibrationDictionary["GENERIC"]["Gradient"]
+            intercept = self.channelVoltageresistorCalibrationDictionary["GENERIC"]["Intercept"]
 
-        return res
+        return grad*voltage + intercept
 
     def Stream(self):
         """
@@ -456,6 +501,9 @@ class ColdThermometryReadout():
             """
             This function configures the settings for the stream.
             """
+
+            nonlocal errorcount
+
             try:
                 
                 ljm.eStreamStart(self.handle, int(self.sample_rate), len(self.channel_names), self.scan_list, self.sample_rate)
@@ -466,6 +514,7 @@ class ColdThermometryReadout():
                 ljme = sys.exc_info()[1]
                 errorcount += 1
                 print("\nApplication encountered an error.\nError Code: {0}; {1}".format(ljme.errorCode, ljme.errorString))
+                time.sleep(3)
                 self.OpenConnection(reconnect=True)
                 CallConfigureStream(self)
         
@@ -497,7 +546,7 @@ class ColdThermometryReadout():
                     for k in range(len(self.channel_names)):
                                 
                         v = np.array(v_measured[k::len(self.channel_names)])
-                        res = np.array(self.ConvertResistance(v))
+                        res = np.array(self.ConvertResistance(v, self.channel_names[k]))
                         temp = np.array(self.ConvertTemperature((res), self.channel_names[k]))
 
                         self.readoutDictionary[self.channel_names[k]]["V [V]"].append(v)
@@ -506,7 +555,7 @@ class ColdThermometryReadout():
                         self.readoutDictionary[self.channel_names[k]]["Time"].append(streamtimeutc)
 
                     self.CheckBiasSwitch()
-                    self.TestingModule.TestingRoutine()
+                    self.testingModule.TestingRoutine()
                     self.ClearMemoryBuffer()
 
             except ljm.LJMError:
@@ -514,7 +563,7 @@ class ColdThermometryReadout():
                     ljme = sys.exc_info()[1]
                     errorcount += 1
                     print("\nApplication encountered an error.\nError Code: {0}; {1}".format(ljme.errorCode, ljme.errorString))
-                    time.sleep(1)
+                    time.sleep(3)
                     self.OpenConnection(reconnect=True)
                     CallConfigureStream(self)
 
@@ -556,7 +605,7 @@ class ColdThermometryReadout():
         else:
             pass
 
-        temp = factor * np.interp(np.log10(1000 * resistance), self.ResistorCalibrationDictionary[channel_name]["log(R [Ohms])"], self.ResistorCalibrationDictionary[channel_name]["Temp [K]"])
+        temp = factor * np.interp(np.log10(1000 * resistance), self.resistorCalibrationDictionary[channel_name]["log(R [Ohms])"], self.resistorCalibrationDictionary[channel_name]["Temp [K]"])
         
         return temp
 
@@ -642,10 +691,10 @@ class Testing():
         bin_dictionary : Dictionary
             The dictionary which stores the binned data of the current stream instance.
 
-        LoadedDataDictionaryAveraged : Dictionary
+        loadedDataDictionaryAveraged : Dictionary
             The dictionary which stores the loaded averaged data.
 
-        LoadedDataDictionaryBinned : Dictionary
+        loadedDataDictionaryBinned : Dictionary
             The dictionary which stores the loaded binned data.
 
         saveinterval : int, default = 30
@@ -675,22 +724,22 @@ class Testing():
         #Configurable Settings
         self.channels_to_print = ["AIN56"]
         self.channels_to_plot = ["AIN56"]
-        self.saveInterval = 30
+        self.saveInterval = 1800
         self.numBins = 10
-        self.savePath = "./Board Test/"
+        self.savePath = "/home/Lab/Documents/Cold Therm Readout Test/"
 
         #Non-Configurable Settings
         self.readout = readoutObject
         self.avg_dictionary = {}
         self.bin_dictionary = {}
-        self.LoadedDataDictionaryAveraged = {}
-        self.LoadedDataDictionaryBinned = {}
+        self.loadedDataDictionaryAveraged = {}
+        self.loadedDataDictionaryBinned = {}
         self.saveCounter = 0
         self.fig = None
         self.ax = None
 
         self.GenerateDictionaries()
-        self.setup_animation()
+        self.Setup_animation()
 
     def GenerateDictionaries(self):
         """
@@ -715,17 +764,17 @@ class Testing():
             self.avg_dictionary[n] = {"V [V]":[],"R [kohms]":[],"Temp [mK]":[],"Time":[]}
             self.bin_dictionary[n] = {"V [V]":[],"R [kohms]":[],"Temp [mK]":[],"Time":[]}
 
-    def CalibrateBoard(self, channel:str, streamAmount:int):
+    def CalibrateChannel(self, channel:str, streamAmount:int):
         """
-        Interface to calibrate the board and obtain a relationship between voltage(V) and resistance(kOhms).
+        Interface to calibrate the a given channel and obtain a relationship between voltage(V) and resistance(kOhms).
 
         Parameters
         ----------
         channel : str
-            The name of the channel from which the voltage samples will be taken. Eg: "AIN56"
+            The name of the channel to calibrate. Voltage samples will be drawn from here. Eg: "AIN56"
 
         streamAmount : int
-            The number of streams for a given resistance. 
+            The number of scans for a given resistance for the specified channel.
 
         Returns
         -------
@@ -735,11 +784,12 @@ class Testing():
         self.readout.SetChannelsToRead(str(channel))
 
         print("\n ### Calibration ###")
-        print("\nFollow the following instructions to calibrate the board.")
 
-        print("You will be repeatedly prompted to enter resistances. These are the input resistances to the set channel. The application will then stream the channel for the specified number of samples and aggregate all data to determine the calibration for the board.")
 
-        print("\nNOTE: Enter all resistances in kOhms. Press 'c' at any time to stop and complete the complete the calibration.")
+
+        print("\nFollow the following instructions to calibrate channel {0}." 
+              "\nYou will be repeatedly prompted to enter resistances. These are the input resistances to channel {0}. The application will then stream channel {0} for {1} samples and aggregate all data to determine the calibration for channel {0}. "
+              "\n\nNOTE: Enter all resistances in kOhms. Press 'c' at any time to stop and complete the complete the calibration.".format(channel, str(streamAmount)))
 
         inputResistances = []
         outputVoltageAverage = []
@@ -766,10 +816,10 @@ class Testing():
 
         slope, intercept, r, p, se = stats.linregress(outputVoltageAverage, inputResistances)
 
-        print("\nCalibration Function: res = {0}*voltage + {1}".format(slope, intercept))
+        print("\nCalibration Function for Channel {2}: res = {0}*voltage + {1}".format(slope, intercept, channel))
         print("r: {0}".format(r))
 
-        print("\nEnter the above equation into the calibraton function of the readout class.")
+        print("\nEnter the above equation into the voltage-resistance calibraton file for channel {0}.".format(channel))
 
         print("\n### Calibration Complete ###")
 
@@ -789,7 +839,7 @@ class Testing():
         self.fig.canvas.draw()
         self.fig.canvas.flush_events()
     
-    def setup_animation(self):
+    def Setup_animation(self):
         """
         Sets the interactive property of the graph if a live readout is in progress, and assigns the figure and axes objects to the Testing object.
         
@@ -974,7 +1024,7 @@ class Testing():
 
     def LoadData(self, channels:ArrayLike, path:str = "./"):
         """
-        Loads previous testing data into the `LoadedDataDictionaryAveraged` and `LoadedDataDictionaryBinned` objects.
+        Loads previous testing data into the `loadedDataDictionaryAveraged` and `loadedDataDictionaryBinned` objects.
         The naming convention for testing data must be upheld for this function to work.
 
         Parameters
@@ -995,8 +1045,8 @@ class Testing():
         
         for channel in channels:
             
-            self.LoadedDataDictionaryAveraged[channel] = {"V [V]":[],"R [kohms]":[],"Temp [mK]":[],"Time":[]}
-            self.LoadedDataDictionaryBinned[channel] = {"V [V]":[],"R [kohms]":[],"Temp [mK]":[],"Time":[]}
+            self.loadedDataDictionaryAveraged[channel] = {"V [V]":[],"R [kohms]":[],"Temp [mK]":[],"Time":[]}
+            self.loadedDataDictionaryBinned[channel] = {"V [V]":[],"R [kohms]":[],"Temp [mK]":[],"Time":[]}
         
             for dataType in loadDictionary: 
 
@@ -1008,12 +1058,12 @@ class Testing():
                     
                     raw_data = np.load(filename)
 
-                    self.LoadedDataDictionaryAveraged[channel][loadDictionary[dataType]] = np.append(self.LoadedDataDictionaryAveraged[channel][loadDictionary[dataType]], raw_data["average_" + dataType])
-                    self.LoadedDataDictionaryBinned[channel][loadDictionary[dataType]] = np.append(self.LoadedDataDictionaryBinned[channel][loadDictionary[dataType]], raw_data["binned_" + dataType])
+                    self.loadedDataDictionaryAveraged[channel][loadDictionary[dataType]] = np.append(self.loadedDataDictionaryAveraged[channel][loadDictionary[dataType]], raw_data["average_" + dataType])
+                    self.loadedDataDictionaryBinned[channel][loadDictionary[dataType]] = np.append(self.loadedDataDictionaryBinned[channel][loadDictionary[dataType]], raw_data["binned_" + dataType])
                     
                     if dataType == "T": #Appends Time data on last cycle
-                        self.LoadedDataDictionaryAveraged[channel]["Time"] = np.append(self.LoadedDataDictionaryAveraged[channel]["Time"], raw_data["average_"+dataType+"_time"])
-                        self.LoadedDataDictionaryBinned[channel]["Time"] = np.append(self.LoadedDataDictionaryBinned[channel]["Time"], raw_data["binned_"+dataType+"_time"])
+                        self.loadedDataDictionaryAveraged[channel]["Time"] = np.append(self.loadedDataDictionaryAveraged[channel]["Time"], raw_data["average_"+dataType+"_time"])
+                        self.loadedDataDictionaryBinned[channel]["Time"] = np.append(self.loadedDataDictionaryBinned[channel]["Time"], raw_data["binned_"+dataType+"_time"])
 
                     count += 1
                     filename = "{0}_{1}.npz".format(rootFilename, count)
@@ -1022,7 +1072,7 @@ class Testing():
                     
     def SaveDataFiles(self):
         """
-        Saves the data in `LoadedDataDictionaryAveraged` and `LoadedDataDictionaryBinned` into files that can be later loaded.
+        Saves the data in `loadedDataDictionaryAveraged` and `loadedDataDictionaryBinned` into files that can be later loaded.
         
         Naming Convention: <ChannelName>_<DataType>_<SaveIntervalCounter>
         <ChannelName> - The name of the channel being saved. The channel list is the same as that of the main readout object.
@@ -1089,7 +1139,7 @@ class Testing():
         Graphs the specified data for the given specified channels. NB: `LoadData()` must be called prior to calling this function.
          
         For more flexibility, the data loaded can be pulled directly from
-        `LoadedDataDictionaryAveraged` and `LoadedDataDictionaryBinned`.
+        `loadedDataDictionaryAveraged` and `loadedDataDictionaryBinned`.
 
         Parameters
         ----------
@@ -1119,18 +1169,18 @@ class Testing():
         if graph_mode == 'a':
             graphTitle = "Graph Showing Average Data for Specified Channels"
             for channel in channels:
-                self.ax.plot(self.RescaleTime(self.LoadedDataDictionaryAveraged[channel]["Time"], time_mode),self.LoadedDataDictionaryAveraged[channel][attr], label = channel)
+                self.ax.plot(self.RescaleTime(self.loadedDataDictionaryAveraged[channel]["Time"], time_mode),self.loadedDataDictionaryAveraged[channel][attr], label = channel)
         
         elif graph_mode == 's':
             graphTitle = "Graph Showing Binned Data for Specified Channels"
             for channel in channels:
-                self.ax.scatter(self.RescaleTime(self.LoadedDataDictionaryBinned[channel]["Time"], time_mode),self.LoadedDataDictionaryBinned[channel][attr], label = channel)
+                self.ax.scatter(self.RescaleTime(self.loadedDataDictionaryBinned[channel]["Time"], time_mode),self.loadedDataDictionaryBinned[channel][attr], label = channel)
         
         elif graph_mode == 'as':
             graphTitle = "Graph Showing Average and Binned Data for Specified Channels"
             for channel in channels:
-                self.ax.plot(self.RescaleTime(self.LoadedDataDictionaryAveraged[channel]["Time"], time_mode),self.LoadedDataDictionaryAveraged[channel][attr], label = channel + "_avg")
-                self.ax.scatter(self.RescaleTime(self.LoadedDataDictionaryBinned[channel]["Time"], time_mode),self.LoadedDataDictionaryBinned[channel][attr], label = channel + "_bin")
+                self.ax.plot(self.RescaleTime(self.loadedDataDictionaryAveraged[channel]["Time"], time_mode),self.loadedDataDictionaryAveraged[channel][attr], label = channel + "_avg")
+                self.ax.scatter(self.RescaleTime(self.loadedDataDictionaryBinned[channel]["Time"], time_mode),self.loadedDataDictionaryBinned[channel][attr], label = channel + "_bin")
         
         else:
             print("Undefined graph mode.")
@@ -1147,6 +1197,7 @@ readoutObj = ColdThermometryReadout('all')
 readoutObj.Stream()
 
 #Load Data
-testing = Testing()
-testing.LoadData(["AIN56"], './Board Test/')
-testing.GraphData(["AIN56"], "as")
+# testing = Testing(readoutObj)
+# testing.CalibrateChannel("56", 20)
+# testing.LoadData(["AIN56"], './Board Test/')
+# testing.GraphData(["AIN56"], "as")
