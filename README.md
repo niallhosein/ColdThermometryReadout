@@ -21,19 +21,38 @@ An excerpt of a `mean.tbl` file is shown below:
 ```
 
 ### Mapping Calibration Curves for Each Channel
-It is possible that the resistor connected to each channel of the readout board may have a different temperature-resistance calibration. A mapping file is required to map a calibration curve file to a specific resistor. By default, this file is the `resistor_calibration_mapping.csv` file found in the same directory as the main python script. **A header is expected is in this file.**
+It is possible that the resistor connected to each channel of the readout board may have a different temperature-resistance calibration. A mapping file is required to map a calibration curve file to a specific resistor. By default, this is the `resistor_calibration_mapping.csv` file found in the same directory as the main python script. **A header is expected for this file.**
 
 Row index 1 is the backup calibration file - the file that will be loaded into a channel in the event that the mapped calibration data cannot be found. The calibration data for other channels can then be explicitly mapped in subsequent rows.
 
 An example calibration mapping is shown below:
 
 | Channel Name  | Path |
-| :------------ | :----|
+| :------------:| :----|
 | BACKUP     | ./ResistorCalibrations/BACKUP.tbl |
 | AIN48      | ./ResistorCalibrations/AIN48_mean.tbl |
 | AIN49      | ./ResistorCalibrations/AIN49_mean.tbl |
 | ...        | ... |
 | AIN60      | ./ResistorCalibrations/AIN60_mean.tbl |
+
+### Voltage-Resistance Calibration
+It is possible, and highly reasonable to assume, that each channel will have a different voltage-resistance calibration equation. The application requires a file containing this information. By default, this is the `channel_voltage_resistance_calibration.csv` file found in the same directory as the main python script. **A header is expected for this file.**
+
+Row index 1 is the generic voltage-resistance equation - the equation that will be loaded into an unspecfied channel.
+
+An example file is shown below:
+
+| Channel Name  | Calibration Equation |
+| :------------: | :----:|
+| GENERIC     | 1.25*voltage +0.0250 |
+| AIN48      | 1.50*voltage +0.1502 |
+| AIN49      | 1.75*voltage +0.3501 |
+| ...        | ... |
+| AIN60      | 2.00*voltage -0.0250 |
+
+Obtain the calibration equation for each channel by calling `CalibrateChannel()` of the `Testing Class`.
+
+*The calibration equation may be determined externally if desired. NOTE: This should be a linear equation relating an input voltage to a resistance.*
 
 ### Configure the Readout Class
 All settings for readout class can be found in the `__init__()` function of the readout class under the heading 'Configurable Settings'. Set the values as desired. A description of each value is given below:
@@ -45,9 +64,9 @@ The scan setup is controlled by `sample_rate` and `scan_amount`. `sample_rate` i
 The bias switching functionality is controlled `BiasSwitchAveragingInterval`, `overrideBias`, and `BiasOutputPort`. Sample values are given below:
 
 ~~~python
-BiasSwitchAveragingInterval:int = 30
-self.overrideBias:float = 3 #In volts
-self.BiasOutputPort:str = "DAC0"
+biasSwitchAveragingInterval:int = 30
+overrideBias:float = 3 #In volts
+biasOutputPort:str = "DAC0"
 ~~~
 
 There are three stage configurations, and their settings are controlled by `upper_stage_config`, `middle_stage_config`, and `lower_stage_config`. Let's consider the middle stage configuration:
@@ -63,29 +82,22 @@ middle_stage_config:dict = {"UL":1.2,"LL":0.15,"Bias":0.2, "CalibratedBias":0.3}
 
 In the above example, the middle stage configuration operates between temperatures of 0.15K and 1.2K, needs to output a bias of 0.2V to best operate the resistors, and requires a DC output of 0.3V from the specified DAC port to achieve the bias of 0.2V.
 
-#### Calibration Mapping
+#### Resistor Calibration Mapping
 The path to the calibration mapping file must be specified in the `ResistorCalibrationMappingPath` variable. By default, it is set to `"./resistor_calibration_mapping.csv"`.
+
+#### Channel Voltage-Resistance Calibration Equations
+The path to the `.csv` file containing the voltage-resistance calibration equations for each channel must be specified in the `channelVoltageResistanceCalibrationFilePath` variable. By default, it is set to `"./channel_voltage_resistance_calibration.csv"`.
 
 #### Reference Channel Setup
 The reference channel and its fixed resistance value are set in `ReferenceChannel` and `ReferenceChannelResistance`. Sample values are given below:
 
 ~~~python
-self.ReferenceChannel:str = "AIN84"
-self.ReferenceChannelResistance:float = 20 #In kOhms
+referenceChannel:str = "AIN84"
+referenceChannelResistance:float = 20 #In kOhms
 ~~~
 
 #### Miscellaneous
-1. `MemoryBufferSize` - The number of scans stored in `readoutDictionary`. After `MemoryBufferSize` scans, `readoutDictionary` is cleared.
-
-#### Calibration
-Obtain the calibration equation for the board by calling `CalibrateBoard()` of the `Testing Class`. In the `ConvertResistance()` function of `ColdThermometryReadout`, set the calibration equation obtained as the output. A sample is given below:
-
-~~~python
-res = 58.69299438396007 * voltage + 0.12049023712211593
-return res
-~~~
-
-*This should be a linear equation relating a voltage to a resistance.*
+1. `memoryBufferSize` - The number of scans stored in `readoutDictionary`. After `MemoryBufferSize` scans, `readoutDictionary` is cleared.
 
 ## Testing
 The `Testing` class contains all of the functions that are not necessary for the board to operate. This includes: live readout(graphical and to console), statistics functions, testing routines, and data analysis variables. Of importance, it also contains the `CalibrateBoard()` function.
@@ -124,6 +136,14 @@ if self.readout.stream_num % self.saveInterval == 0:
 
 ### Calibrate Channel
 The `CalibrateChannel()` function automatically calibrates a given channel and outputs a linear equation relating an output voltage(in V) to a resistance value(in kOhms). This function prompts the user to set the input resistance of the specfied channed to a fixed values of their choice, and then streams for a specified number of scans. Using the data obtained from these scans, and the input resistances, it performs linear regression analysis on the data to obtain the calibration equation. 
+
+Unlike other testing fuctions, a an instance of the `ColdThermometryReadout` class must be passed into the testing module when calibration is required. A sample calibration is given below:
+
+~~~python
+readoutObject = ColdThermometryReadout() #initializes an instance of the readout class.
+testing = Testing(readoutObject)
+testing.CalibrateChannel('40', 30) #Calibrate channel 40 with 30 scans taken per set resistance.
+~~~
 
 ### Loading Data
 Data is saved as `.npz` files which allows multiple `ArrayLike` objects to be stored with ease in a single file. This data can be loaded at a later time by calling the `LoadData` function of the `Testing` class.
