@@ -99,7 +99,7 @@ class ColdThermometryReadout():
        
        #Configurable Settings
        self.sample_rate:int = 1600
-       self.scan_amount:float = 3600
+       self.scan_amount:float = float('inf')
        self.upper_stage_config:dict = {"UL":100,"LL":1.2,"Bias":5, "CalibratedBias":5}
        self.middle_stage_config:dict = {"UL":1.2,"LL":0.15,"Bias":0.2, "CalibratedBias":0.2}
        self.lower_stage_config:dict = {"UL":0.15,"LL":0,"Bias":0.02, "CalibratedBias":0.02}
@@ -439,6 +439,7 @@ class ColdThermometryReadout():
             ljme = sys.exc_info()[1]
             if ljme.errorCode == 2605: #Stream is Active.
                 print("\nStream is active. Stopping stream and restarting method.")
+                ljm.eStreamStop(self.handle)
                 self.SetupLabJack(setup_names, setup_values)
 
     def ConvertResistance(self, voltage:ArrayLike, channel_name:str):
@@ -464,8 +465,8 @@ class ColdThermometryReadout():
             grad = self.channelVoltageresistorCalibrationDictionary[channel_name]["Gradient"]
             intercept = self.channelVoltageresistorCalibrationDictionary[channel_name]["Intercept"]
         else:
-            grad = self.channelVoltageresistorCalibrationDictionary["DEFAULT"]["Gradient"]
-            intercept = self.channelVoltageresistorCalibrationDictionary["DEFAULT"]["Intercept"]
+            grad = self.channelVoltageresistorCalibrationDictionary["GENERIC"]["Gradient"]
+            intercept = self.channelVoltageresistorCalibrationDictionary["GENERIC"]["Intercept"]
 
         return grad*voltage + intercept
 
@@ -723,9 +724,9 @@ class Testing():
         #Configurable Settings
         self.channels_to_print = ["AIN56"]
         self.channels_to_plot = ["AIN56"]
-        self.saveInterval = 30
+        self.saveInterval = 1800
         self.numBins = 10
-        self.savePath = "./Board Test/"
+        self.savePath = "/home/Lab/Documents/Cold Therm Readout Test/"
 
         #Non-Configurable Settings
         self.readout = readoutObject
@@ -1193,10 +1194,10 @@ class Testing():
 
 #Stream Test
 readoutObj = ColdThermometryReadout('all')
-# readoutObj.Stream()
+readoutObj.Stream()
 
 #Load Data
-testing = Testing(readoutObj)
-testing.CalibrateChannel("56", 20)
+# testing = Testing(readoutObj)
+# testing.CalibrateChannel("56", 20)
 # testing.LoadData(["AIN56"], './Board Test/')
 # testing.GraphData(["AIN56"], "as")
