@@ -122,8 +122,8 @@ if self.readout.stream_num % self.saveInterval == 0:
     self.SaveDataFiles()
 ~~~
 
-### Calibrate Board
-The `CalibrateBoard()` function automatically calibrates the board and outputs a linear equation relating an output voltage to a resistance value. This function prompts the user to set the input resistance of the board to fixed values of their choice, and then streams for a specified number of scans. Using the data obtained from these scans, and the input resistances, it performs linear regression analysis on the data to obtain the calibration equation. 
+### Calibrate Channel
+The `CalibrateChannel()` function automatically calibrates a given channel and outputs a linear equation relating an output voltage(in V) to a resistance value(in kOhms). This function prompts the user to set the input resistance of the specfied channed to a fixed values of their choice, and then streams for a specified number of scans. Using the data obtained from these scans, and the input resistances, it performs linear regression analysis on the data to obtain the calibration equation. 
 
 ### Loading Data
 Data is saved as `.npz` files which allows multiple `ArrayLike` objects to be stored with ease in a single file. This data can be loaded at a later time by calling the `LoadData` function of the `Testing` class.
